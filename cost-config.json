@@ -1,0 +1,12 @@
+{
+  "_comment": "Edit token prices here (USD per 1K tokens). No code change needed; restart the server to apply. 'default' is used for any model not listed.",
+  "models": {
+    "claude-sonnet-4-20250514":   { "input": 0.003,   "output": 0.015  },
+    "claude-opus-4-20250514":     { "input": 0.015,   "output": 0.075  },
+    "claude-haiku-4-5-20251001":  { "input": 0.0008,  "output": 0.004  },
+    "gpt-4o":                     { "input": 0.005,   "output": 0.015  },
+    "gpt-4o-mini":                { "input": 0.00015, "output": 0.0006 },
+    "llama-3.1-nemotron-nano-8b-v1": { "input": 0.0001, "output": 0.0004 },
+    "default":                    { "input": 0.003,   "output": 0.015  }
+  }
+}

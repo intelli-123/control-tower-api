@@ -35,6 +35,8 @@ const store = {
   alerts:      [],   // Alert[]
   escalations: {},   // { [escalation_id]: Escalation }
   runs:        [],   // TriggerRun[]
+  executions:  [],   // Execution[] — one per completed request (task_start→task_complete)
+  openExec:    {},   // { [agent_id]: { started_at, task, tokens, cost } } in-flight requests
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -42,15 +44,15 @@ const OFFLINE_THRESHOLD_MS  = 60_000;  // mark offline after 60s no heartbeat
 const TOKEN_SPIKE_MULTIPLIER = 2.5;    // flag if tokens > 2.5× agent baseline
 const LOOP_DETECTION_WINDOW  = 5;      // flag if same tool called >5× in 10s
 
-// Cost per 1K tokens by model (input / output)
-const COST_TABLE = {
-  'claude-sonnet-4-20250514': { input: 0.003,  output: 0.015  },
-  'claude-opus-4-20250514':   { input: 0.015,  output: 0.075  },
-  'claude-haiku-4-5-20251001':{ input: 0.0008, output: 0.004  },
-  'gpt-4o':                   { input: 0.005,  output: 0.015  },
-  'gpt-4o-mini':              { input: 0.00015,output: 0.0006 },
-  default:                    { input: 0.003,  output: 0.015  },
-};
+// Cost per 1K tokens by model (input / output) — editable in cost-config.json.
+// Falls back to a built-in default if the file is missing or malformed.
+let COST_TABLE = { default: { input: 0.003, output: 0.015 } };
+try {
+  COST_TABLE = require('./cost-config.json').models || COST_TABLE;
+  console.log(`[cost] Loaded ${Object.keys(COST_TABLE).length} model rates from cost-config.json`);
+} catch (e) {
+  console.warn('[cost] cost-config.json not loaded, using built-in default:', e.message);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function now() { return new Date().toISOString(); }
@@ -255,6 +257,38 @@ app.post('/api/heartbeat', (req, res) => {
     );
   }
 
+  // ── Per-request execution tracking ──────────────────────────────────────────
+  // Open on task_start, accumulate tokens/cost across the request's heartbeats,
+  // close on task_complete recording wall-clock latency.
+  const ev = body.event;
+  if (ev === 'task_start') {
+    store.openExec[agentId] = {
+      started_at: now(),
+      task:       body.event_detail || body.current_task || null,
+      tokens:     0,
+      cost:       0,
+    };
+  }
+  const open = store.openExec[agentId];
+  if (open) {
+    open.tokens += metrics.tokens_total || 0;
+    open.cost   += metrics.cost_usd     || 0;
+  }
+  if (ev === 'task_complete' && open) {
+    store.executions.unshift({
+      id:           uuidv4(),
+      agent_id:     agentId,
+      task:         open.task,
+      started_at:   open.started_at,
+      completed_at: now(),
+      latency_ms:   Date.now() - new Date(open.started_at).getTime(),
+      tokens:       open.tokens,
+      cost:         +open.cost.toFixed(6),
+    });
+    if (store.executions.length > 2000) store.executions.pop();
+    delete store.openExec[agentId];
+  }
+
   // Resolve silent_failure alert if agent is back
   store.alerts
     .filter(a => a.agent_id === agentId && a.type === 'silent_failure' && !a.resolved)
@@ -275,14 +309,59 @@ app.post('/api/heartbeat', (req, res) => {
  */
 app.get('/api/agents', (req, res) => {
   markOfflineAgents();
-  const agents = Object.values(store.agents).map(a => ({
-    ...a,
-    seconds_since_heartbeat: a.last_heartbeat
-      ? Math.floor((Date.now() - new Date(a.last_heartbeat).getTime()) / 1000)
-      : null,
-    active_alerts: store.alerts.filter(al => al.agent_id === a.agent_id && !al.resolved).length,
-  }));
-  res.json({ agents, total: agents.length, timestamp: now() });
+  const agents = Object.values(store.agents).map(a => {
+    const execs = store.executions.filter(e => e.agent_id === a.agent_id);
+    const avgLat = execs.length
+      ? Math.round(execs.reduce((s, e) => s + e.latency_ms, 0) / execs.length)
+      : 0;
+    return {
+      ...a,
+      seconds_since_heartbeat: a.last_heartbeat
+        ? Math.floor((Date.now() - new Date(a.last_heartbeat).getTime()) / 1000)
+        : null,
+      active_alerts:      store.alerts.filter(al => al.agent_id === a.agent_id && !al.resolved).length,
+      executions_count:   execs.length,
+      avg_latency_ms:     avgLat,   // wall-clock request latency
+    };
+  });
+  // Overall request latency across all executions (for the dashboard latency card)
+  const allExec = store.executions;
+  const overallAvgLatency = allExec.length
+    ? Math.round(allExec.reduce((s, e) => s + e.latency_ms, 0) / allExec.length)
+    : 0;
+  res.json({ agents, total: agents.length, avg_latency_ms: overallAvgLatency, timestamp: now() });
+});
+
+/**
+ * GET /api/agents/:id/executions
+ * Per-request executions for one agent.
+ * Query: ?from=<ISO date>  (filter completed_at >= from)
+ *        ?sort=latency | latency_asc | recent (default)
+ */
+app.get('/api/agents/:id/executions', (req, res) => {
+  const { from, sort } = req.query;
+  let execs = store.executions.filter(e => e.agent_id === req.params.id);
+
+  if (from) {
+    const fromTs = new Date(from).getTime();
+    if (!isNaN(fromTs)) execs = execs.filter(e => new Date(e.completed_at).getTime() >= fromTs);
+  }
+
+  if (sort === 'latency')          execs = [...execs].sort((a, b) => b.latency_ms - a.latency_ms);
+  else if (sort === 'latency_asc') execs = [...execs].sort((a, b) => a.latency_ms - b.latency_ms);
+  // default: newest first (store.executions is unshifted, already newest-first)
+
+  const count  = execs.length;
+  const tokens = execs.reduce((s, e) => s + (e.tokens || 0), 0);
+  const cost   = +execs.reduce((s, e) => s + (e.cost || 0), 0).toFixed(6);
+  const avgLat = count ? Math.round(execs.reduce((s, e) => s + e.latency_ms, 0) / count) : 0;
+
+  res.json({
+    agent_id:       req.params.id,
+    count, tokens, cost,
+    avg_latency_ms: avgLat,
+    executions:     execs.slice(0, 500),
+  });
 });
 
 /**

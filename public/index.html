@@ -271,7 +271,7 @@ nav { padding: 12px 0; flex: 1; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* Metric row */
-.metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
 
 .metric-card {
   background: var(--surface);
@@ -309,6 +309,43 @@ nav { padding: 12px 0; flex: 1; }
 }
 .metric-sub { font-size: 11px; color: var(--muted); }
 .metric-accent { position: absolute; top: 16px; right: 16px; font-size: 20px; opacity: 0.15; }
+
+/* Clickable agent name */
+.agent-name-link { font-weight: 500; font-size: 13px; color: var(--accent, #4da3ff); cursor: pointer; }
+.agent-name-link:hover { text-decoration: underline; }
+
+/* Agent detail modal */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  align-items: flex-start; justify-content: center; padding: 60px 16px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--panel, #131a24); border: 1px solid var(--border, #25303d);
+  border-radius: 12px; width: 100%; max-width: 760px; max-height: 80vh;
+  overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border, #25303d);
+  position: sticky; top: 0; background: var(--panel, #131a24);
+}
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-close { cursor: pointer; background: none; border: none; color: var(--muted); font-size: 20px; line-height: 1; }
+.modal-close:hover { color: var(--text, #e6edf3); }
+.modal-body { padding: 18px 20px; }
+.detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 10px; margin-bottom: 16px; }
+.detail-stat { background: var(--bg, #0d1218); border: 1px solid var(--border, #25303d); border-radius: 8px; padding: 12px; }
+.detail-stat .v { font-size: 18px; font-weight: 600; font-family: var(--font-mono); }
+.detail-stat .l { font-size: 10px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em; }
+.preset-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border, #25303d); background: transparent; color: var(--muted); margin-right: 6px;
+}
+.preset-btn.active { background: var(--accent, #4da3ff); color: #06121f; border-color: var(--accent, #4da3ff); }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: var(--text, #e6edf3); }
 
 /* Section header */
 .section-head {
@@ -656,6 +693,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
           <div class="metric-card"><div class="metric-label">Agents offline</div><div class="metric-value" id="m-offline" style="color:var(--muted)">–</div><div class="metric-sub">not reporting</div><div class="metric-accent">⬡</div></div>
           <div class="metric-card"><div class="metric-label">Tokens today</div><div class="metric-value" id="m-tokens">–</div><div class="metric-sub">cumulative</div><div class="metric-accent">◈</div></div>
           <div class="metric-card"><div class="metric-label">Cost today</div><div class="metric-value" id="m-cost">–</div><div class="metric-sub" id="m-cost-s">across all agents</div><div class="metric-accent">◇</div></div>
+          <div class="metric-card"><div class="metric-label">Avg latency</div><div class="metric-value" id="m-latency">–</div><div class="metric-sub">per request</div><div class="metric-accent">◷</div></div>
           <div class="metric-card"><div class="metric-label">Active alerts</div><div class="metric-value" id="m-alerts" style="color:var(--red)">–</div><div class="metric-sub">unresolved</div><div class="metric-accent">△</div></div>
         </div>
         <div class="section-head">
@@ -772,6 +810,31 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
   </div><!-- /main -->
 </div><!-- /shell -->
 
+<!-- Agent detail modal -->
+<div class="modal-overlay" id="agent-modal" onclick="if(event.target===this)closeAgentDetail()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="ad-title">Agent</div>
+      <button class="modal-close" onclick="closeAgentDetail()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:14px">
+        <span class="preset-btn" data-preset="today" onclick="setDetailPreset('today')">Today</span>
+        <span class="preset-btn active" data-preset="7d" onclick="setDetailPreset('7d')">7 days</span>
+        <span class="preset-btn" data-preset="30d" onclick="setDetailPreset('30d')">30 days</span>
+        <span class="preset-btn" data-preset="all" onclick="setDetailPreset('all')">All</span>
+      </div>
+      <div class="detail-stats">
+        <div class="detail-stat"><div class="v" id="ad-count">–</div><div class="l">Executions</div></div>
+        <div class="detail-stat"><div class="v" id="ad-tokens">–</div><div class="l">Tokens</div></div>
+        <div class="detail-stat"><div class="v" id="ad-cost">–</div><div class="l">Cost</div></div>
+        <div class="detail-stat"><div class="v" id="ad-latency">–</div><div class="l">Avg latency</div></div>
+      </div>
+      <div id="ad-table"><div class="loading"><div class="spin"></div></div></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';  // same origin — server.js serves this file AND the API
 
@@ -812,6 +875,11 @@ function ago(iso) {
   if (s < 3600)  return Math.floor(s/60)+'m ago';
   if (s < 86400) return Math.floor(s/3600)+'h ago';
   return Math.floor(s/86400)+'d ago';
+}
+
+function fmtLatency(ms) {
+  if (!ms) return '–';
+  return ms >= 1000 ? (ms/1000).toFixed(2)+'s' : Math.round(ms)+'ms';
 }
 
 // How long without a heartbeat before the UI treats an agent as offline.
@@ -903,6 +971,7 @@ async function loadDashboard() {
   document.getElementById('m-tokens').textContent   = fmt(totalTk);
   document.getElementById('m-cost').textContent     = '$'+(costData?.total_cost_usd||0).toFixed(3);
   document.getElementById('m-cost-s').textContent   = Object.keys(costData?.by_agent||{}).length+' agents tracked';
+  document.getElementById('m-latency').textContent  = fmtLatency(agentsData?.avg_latency_ms || 0);
   document.getElementById('m-alerts').textContent   = alerts;
   document.getElementById('nb-alerts').textContent  = alerts;
 
@@ -925,7 +994,7 @@ async function loadDashboard() {
     const hb = a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat+'s ago' : '–';
     return `<tr>
       <td style="min-width:140px">
-        <div style="font-weight:500;font-size:13px">${a.name||a.agent_id}</div>
+        <div class="agent-name-link" onclick="openAgentDetail('${a.agent_id}')" title="View agent detail">${a.name||a.agent_id}</div>
         <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-top:1px">${a.department||''}</div>
       </td>
       <td>${statusHTML(effectiveStatus(a))}</td>
@@ -1190,6 +1259,79 @@ async function loadAudit() {
         ${s.tokens?`<div class="audit-tokens">⬡ ${s.tokens}</div>`:''}
       </div>
     </div>`).join('');
+}
+
+// ── Agent detail modal ──────────────────────────────────────────────────────
+let _detailAgent = null, _detailPreset = '7d', _detailSort = 'recent', _detailExecs = [];
+
+function presetToFrom(preset) {
+  const d = new Date();
+  if (preset === 'today') { d.setHours(0,0,0,0); return d.toISOString(); }
+  if (preset === '7d')    return new Date(Date.now() - 7*86400000).toISOString();
+  if (preset === '30d')   return new Date(Date.now() - 30*86400000).toISOString();
+  return ''; // all
+}
+
+function openAgentDetail(agentId) {
+  _detailAgent = agentId; _detailPreset = '7d'; _detailSort = 'recent';
+  document.querySelectorAll('#agent-modal .preset-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.preset === '7d'));
+  const a = (_agents || []).find(x => x.agent_id === agentId);
+  document.getElementById('ad-title').textContent = (a?.name || agentId) + ' — executions';
+  document.getElementById('agent-modal').classList.add('open');
+  loadAgentDetail();
+}
+
+function closeAgentDetail() {
+  document.getElementById('agent-modal').classList.remove('open');
+  _detailAgent = null;
+}
+
+function setDetailPreset(preset) {
+  _detailPreset = preset;
+  document.querySelectorAll('#agent-modal .preset-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.preset === preset));
+  loadAgentDetail();
+}
+
+function toggleDetailSort() {
+  _detailSort = _detailSort === 'latency' ? 'latency_asc' : 'latency';
+  renderDetailTable();
+}
+
+async function loadAgentDetail() {
+  if (!_detailAgent) return;
+  document.getElementById('ad-table').innerHTML = '<div class="loading"><div class="spin"></div></div>';
+  const from = presetToFrom(_detailPreset);
+  const qs = 'sort=recent' + (from ? '&from=' + encodeURIComponent(from) : '');
+  const data = await apiFetch(`/api/agents/${encodeURIComponent(_detailAgent)}/executions?${qs}`);
+  _detailExecs = data?.executions || [];
+  document.getElementById('ad-count').textContent   = data?.count || 0;
+  document.getElementById('ad-tokens').textContent  = fmt(data?.tokens || 0);
+  document.getElementById('ad-cost').textContent    = '$' + (data?.cost || 0).toFixed(4);
+  document.getElementById('ad-latency').textContent = fmtLatency(data?.avg_latency_ms || 0);
+  renderDetailTable();
+}
+
+function renderDetailTable() {
+  let rows = [..._detailExecs];
+  if (_detailSort === 'latency')      rows.sort((a,b) => b.latency_ms - a.latency_ms);
+  else if (_detailSort === 'latency_asc') rows.sort((a,b) => a.latency_ms - b.latency_ms);
+  const arrow = _detailSort === 'latency' ? ' ↓' : _detailSort === 'latency_asc' ? ' ↑' : '';
+  const el = document.getElementById('ad-table');
+  if (!rows.length) { el.innerHTML = '<div class="empty-state"><p>No executions in this range.</p></div>'; return; }
+  el.innerHTML = `<table><thead><tr>
+      <th>Started</th><th>Task</th>
+      <th class="sortable" onclick="toggleDetailSort()" title="Sort by latency">Latency${arrow}</th>
+      <th>Tokens</th><th>Cost</th>
+    </tr></thead><tbody>` +
+    rows.map(e => `<tr>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">${ago(e.completed_at)}</td>
+      <td style="max-width:240px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.task||'–'}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${fmtLatency(e.latency_ms)}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${fmt(e.tokens||0)}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">$${(e.cost||0).toFixed(4)}</td>
+    </tr>`).join('') + '</tbody></table>';
 }
 
 function drillAudit(agentId) {

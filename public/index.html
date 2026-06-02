@@ -271,7 +271,7 @@ nav { padding: 12px 0; flex: 1; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 /* Metric row */
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+.metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
 
 .metric-card {
   background: var(--surface);
@@ -652,7 +652,8 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <!-- DASHBOARD -->
       <div class="panel active" id="panel-dashboard">
         <div class="metrics" id="metrics-row">
-          <div class="metric-card"><div class="metric-label">Active agents</div><div class="metric-value" id="m-agents">–</div><div class="metric-sub" id="m-agents-s">loading</div><div class="metric-accent">⬡</div></div>
+          <div class="metric-card"><div class="metric-label">Agents online</div><div class="metric-value" id="m-online" style="color:var(--green)">–</div><div class="metric-sub" id="m-online-s">loading</div><div class="metric-accent">⬡</div></div>
+          <div class="metric-card"><div class="metric-label">Agents offline</div><div class="metric-value" id="m-offline" style="color:var(--muted)">–</div><div class="metric-sub">not reporting</div><div class="metric-accent">⬡</div></div>
           <div class="metric-card"><div class="metric-label">Tokens today</div><div class="metric-value" id="m-tokens">–</div><div class="metric-sub">cumulative</div><div class="metric-accent">◈</div></div>
           <div class="metric-card"><div class="metric-label">Cost today</div><div class="metric-value" id="m-cost">–</div><div class="metric-sub" id="m-cost-s">across all agents</div><div class="metric-accent">◇</div></div>
           <div class="metric-card"><div class="metric-label">Active alerts</div><div class="metric-value" id="m-alerts" style="color:var(--red)">–</div><div class="metric-sub">unresolved</div><div class="metric-accent">△</div></div>
@@ -813,6 +814,21 @@ function ago(iso) {
   return Math.floor(s/86400)+'d ago';
 }
 
+// How long without a heartbeat before the UI treats an agent as offline.
+// This makes the dashboard reflect a shut-down agent on the next refresh,
+// rather than waiting for the backend's slower offline sweep.
+const OFFLINE_AFTER_S = 45;
+
+function isOffline(a) {
+  return a.status === 'offline' ||
+         (a.seconds_since_heartbeat != null && a.seconds_since_heartbeat > OFFLINE_AFTER_S);
+}
+
+// Status as the dashboard should display it, accounting for stale heartbeats.
+function effectiveStatus(a) {
+  return isOffline(a) ? 'offline' : a.status;
+}
+
 function statusHTML(s) {
   const map = { ready:'s-ready', busy:'s-busy', error:'s-error', offline:'s-offline' };
   const dot = { ready:'d-ready', busy:'d-busy',  error:'d-error',  offline:'d-offline'};
@@ -873,14 +889,17 @@ async function loadDashboard() {
   ]);
 
   _agents = agentsData?.agents || [];
-  const ready   = _agents.filter(a => a.status==='ready').length;
-  const busy    = _agents.filter(a => a.status==='busy').length;
-  const errors  = _agents.filter(a => a.status==='error'||a.status==='offline').length;
+  const online  = _agents.filter(a => !isOffline(a));
+  const offline = _agents.filter(a =>  isOffline(a)).length;
+  const ready   = online.filter(a => a.status==='ready').length;
+  const busy    = online.filter(a => a.status==='busy').length;
+  const errors  = online.filter(a => a.status==='error').length + offline;
   const alerts  = alertsData?.total || 0;
   const totalTk = _agents.reduce((s,a) => s+(a.totals?.tokens||0), 0);
 
-  document.getElementById('m-agents').textContent   = _agents.length;
-  document.getElementById('m-agents-s').textContent = `${ready} ready · ${busy} busy · ${errors} error`;
+  document.getElementById('m-online').textContent   = online.length;
+  document.getElementById('m-online-s').textContent = `${ready} ready · ${busy} busy`;
+  document.getElementById('m-offline').textContent  = offline;
   document.getElementById('m-tokens').textContent   = fmt(totalTk);
   document.getElementById('m-cost').textContent     = '$'+(costData?.total_cost_usd||0).toFixed(3);
   document.getElementById('m-cost-s').textContent   = Object.keys(costData?.by_agent||{}).length+' agents tracked';
@@ -909,7 +928,7 @@ async function loadDashboard() {
         <div style="font-weight:500;font-size:13px">${a.name||a.agent_id}</div>
         <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-top:1px">${a.department||''}</div>
       </td>
-      <td>${statusHTML(a.status)}</td>
+      <td>${statusHTML(effectiveStatus(a))}</td>
       <td style="max-width:180px;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.current_task||'–'}</td>
       <td style="min-width:160px">${tools||`<span style="color:var(--dim);font-size:11px">none registered</span>`}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${fmt(a.totals?.tokens||0)}</td>
@@ -974,7 +993,7 @@ async function loadLineage() {
   const aN = agentNodes.map((a, i) => ({
     label: (a.name||a.agent_id).split(' ')[0],
     x: spacing * (i+1), y: agentY,
-    color: statusColor[a.status]||'#5A6A7A', r: 22, type: 'agent', status: a.status,
+    color: statusColor[effectiveStatus(a)]||'#5A6A7A', r: 22, type: 'agent', status: effectiveStatus(a),
   }));
 
   const tSpacing = W / (allTools.length + 1);

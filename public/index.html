@@ -279,10 +279,30 @@ nav { padding: 12px 0; flex: 1; }
   border-radius: 12px;
   padding: 16px 18px;
   position: relative;
-  overflow: hidden;
+  overflow: visible;          /* allow hover tooltip to show below the card */
   transition: border-color .2s;
+  cursor: pointer;            /* clickable to expand */
 }
-.metric-card:hover { border-color: var(--border2); }
+.metric-card:hover { border-color: var(--border2); z-index: 50; }
+
+/* Hover tooltip (per-card breakdown) */
+.card-tip {
+  display: none; position: absolute; left: 0; right: 0; top: 100%; margin-top: 8px;
+  z-index: 100; background: var(--bg, #0d1218); border: 1px solid var(--border2, #2d3a48);
+  border-radius: 10px; padding: 10px 12px; box-shadow: 0 12px 34px rgba(0,0,0,0.55);
+  font-size: 11px; line-height: 1.5; max-height: 240px; overflow: auto;
+  text-transform: none; letter-spacing: normal; cursor: default;
+}
+.metric-card:hover .card-tip { display: block; }
+.card-tip .tip-hd { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.card-tip .tip-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+.card-tip .tip-row .n { color: var(--text); }
+.card-tip .tip-row .v { color: var(--muted); font-family: var(--font-mono); }
+.card-tip .tip-empty { color: var(--dim, #5A6A7A); }
+
+/* Filter bar (card detail) */
+.cd-filter { font-size: 12px; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border2, #2d3a48);
+  background: var(--bg, #0d1218); color: var(--text, #e6edf3); }
 .metric-card::after {
   content: '';
   position: absolute;
@@ -689,12 +709,12 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <!-- DASHBOARD -->
       <div class="panel active" id="panel-dashboard">
         <div class="metrics" id="metrics-row">
-          <div class="metric-card"><div class="metric-label">Agents online</div><div class="metric-value" id="m-online" style="color:var(--green)">–</div><div class="metric-sub" id="m-online-s">loading</div><div class="metric-accent">⬡</div></div>
-          <div class="metric-card"><div class="metric-label">Agents offline</div><div class="metric-value" id="m-offline" style="color:var(--muted)">–</div><div class="metric-sub">not reporting</div><div class="metric-accent">⬡</div></div>
-          <div class="metric-card"><div class="metric-label">Tokens today</div><div class="metric-value" id="m-tokens">–</div><div class="metric-sub">cumulative</div><div class="metric-accent">◈</div></div>
-          <div class="metric-card"><div class="metric-label">Cost today</div><div class="metric-value" id="m-cost">–</div><div class="metric-sub" id="m-cost-s">across all agents</div><div class="metric-accent">◇</div></div>
-          <div class="metric-card"><div class="metric-label">Avg latency</div><div class="metric-value" id="m-latency">–</div><div class="metric-sub">per request</div><div class="metric-accent">◷</div></div>
-          <div class="metric-card"><div class="metric-label">Active alerts</div><div class="metric-value" id="m-alerts" style="color:var(--red)">–</div><div class="metric-sub">unresolved</div><div class="metric-accent">△</div></div>
+          <div class="metric-card" onclick="openCardDetail('online')"><div class="metric-label">Agents online</div><div class="metric-value" id="m-online" style="color:var(--green)">–</div><div class="metric-sub" id="m-online-s">loading</div><div class="metric-accent">⬡</div><div class="card-tip" id="tip-online"></div></div>
+          <div class="metric-card" onclick="openCardDetail('offline')"><div class="metric-label">Agents offline</div><div class="metric-value" id="m-offline" style="color:var(--muted)">–</div><div class="metric-sub">not reporting</div><div class="metric-accent">⬡</div><div class="card-tip" id="tip-offline"></div></div>
+          <div class="metric-card" onclick="openCardDetail('tokens')"><div class="metric-label">Tokens today</div><div class="metric-value" id="m-tokens">–</div><div class="metric-sub">cumulative</div><div class="metric-accent">◈</div><div class="card-tip" id="tip-tokens"></div></div>
+          <div class="metric-card" onclick="openCardDetail('cost')"><div class="metric-label">Cost today</div><div class="metric-value" id="m-cost">–</div><div class="metric-sub" id="m-cost-s">across all agents</div><div class="metric-accent">◇</div><div class="card-tip" id="tip-cost"></div></div>
+          <div class="metric-card" onclick="openCardDetail('latency')"><div class="metric-label">Avg latency</div><div class="metric-value" id="m-latency">–</div><div class="metric-sub">per request</div><div class="metric-accent">◷</div><div class="card-tip" id="tip-latency"></div></div>
+          <div class="metric-card" onclick="openCardDetail('alerts')"><div class="metric-label">Active alerts</div><div class="metric-value" id="m-alerts" style="color:var(--red)">–</div><div class="metric-sub">unresolved</div><div class="metric-accent">△</div><div class="card-tip" id="tip-alerts"></div></div>
         </div>
         <div class="section-head">
           <div class="section-title">All agents</div>
@@ -809,6 +829,20 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /shell -->
+
+<!-- Card detail modal -->
+<div class="modal-overlay" id="card-modal" onclick="if(event.target===this)closeCardDetail()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="cd-title">Detail</div>
+      <button class="modal-close" onclick="closeCardDetail()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="cd-filters" style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+      <div id="cd-content"><div class="loading"><div class="spin"></div></div></div>
+    </div>
+  </div>
+</div>
 
 <!-- Agent detail modal -->
 <div class="modal-overlay" id="agent-modal" onclick="if(event.target===this)closeAgentDetail()">
@@ -957,6 +991,9 @@ async function loadDashboard() {
   ]);
 
   _agents = agentsData?.agents || [];
+  _alerts = alertsData?.alerts || [];
+  _cost   = costData || null;
+  renderCardTips();
   const online  = _agents.filter(a => !isOffline(a));
   const offline = _agents.filter(a =>  isOffline(a)).length;
   const ready   = online.filter(a => a.status==='ready').length;
@@ -1332,6 +1369,137 @@ function renderDetailTable() {
       <td style="font-family:var(--font-mono);font-size:12px">${fmt(e.tokens||0)}</td>
       <td style="font-family:var(--font-mono);font-size:12px">$${(e.cost||0).toFixed(4)}</td>
     </tr>`).join('') + '</tbody></table>';
+}
+
+// ── Card hover tooltips + click-to-expand ───────────────────────────────────
+let _alerts = [], _cost = null, _cdType = null;
+
+function tipRows(items, emptyMsg) {
+  if (!items.length) return `<div class="tip-empty">${emptyMsg}</div>`;
+  const shown = items.slice(0, 8)
+    .map(i => `<div class="tip-row"><span class="n">${i.n}</span><span class="v">${i.v}</span></div>`).join('');
+  const more = items.length > 8 ? `<div class="tip-row"><span class="v">+${items.length - 8} more…</span></div>` : '';
+  return shown + more;
+}
+function setTip(type, header, rowsHtml) {
+  const el = document.getElementById('tip-' + type);
+  if (el) el.innerHTML = `<div class="tip-hd">${header}</div>${rowsHtml}`;
+}
+function nameOf(a) { return a.name || a.agent_id; }
+
+function renderCardTips() {
+  const online  = _agents.filter(a => !isOffline(a));
+  const offline = _agents.filter(a =>  isOffline(a));
+  setTip('online',  'Online agents',
+    tipRows(online.map(a => ({ n: nameOf(a), v: effectiveStatus(a) })), 'No agents online'));
+  setTip('offline', 'Offline agents',
+    tipRows(offline.map(a => ({ n: nameOf(a), v: a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat + 's ago' : '–' })), 'No offline agents'));
+  setTip('tokens', 'Tokens by agent',
+    tipRows([..._agents].filter(a => (a.totals?.tokens||0) > 0).sort((a,b)=>(b.totals?.tokens||0)-(a.totals?.tokens||0))
+      .map(a => ({ n: nameOf(a), v: fmt(a.totals?.tokens||0) })), 'No tokens yet'));
+  setTip('cost', 'Cost by agent',
+    tipRows([..._agents].filter(a => (a.totals?.cost||0) > 0).sort((a,b)=>(b.totals?.cost||0)-(a.totals?.cost||0))
+      .map(a => ({ n: nameOf(a), v: '$'+(a.totals?.cost||0).toFixed(4) })), 'No cost yet'));
+  setTip('latency', 'Avg latency by agent',
+    tipRows([..._agents].filter(a => (a.avg_latency_ms||0) > 0).sort((a,b)=>(b.avg_latency_ms||0)-(a.avg_latency_ms||0))
+      .map(a => ({ n: nameOf(a), v: fmtLatency(a.avg_latency_ms) })), 'No requests yet'));
+  setTip('alerts', 'Active alerts',
+    tipRows(_alerts.map(al => ({ n: al.agent_id, v: `${al.severity} · ${al.type}` })), 'No active alerts'));
+}
+
+const CARD_TITLES = {
+  online: 'Online agents', offline: 'Offline agents', tokens: 'Tokens by agent',
+  cost: 'Cost by agent', latency: 'Latency by agent', alerts: 'Active alerts',
+};
+
+function openCardDetail(type) {
+  _cdType = type;
+  document.getElementById('cd-title').textContent = CARD_TITLES[type] || 'Detail';
+  document.getElementById('card-modal').classList.add('open');
+  buildCardFilters(type);
+  renderCardDetail();
+}
+function closeCardDetail() { document.getElementById('card-modal').classList.remove('open'); _cdType = null; }
+
+function departments() { return [...new Set(_agents.map(a => a.department || 'Unknown'))].sort(); }
+function deptSelect() {
+  return `<select class="cd-filter" id="cd-dept" onchange="renderCardDetail()">
+    <option value="">All departments</option>${departments().map(d=>`<option>${d}</option>`).join('')}</select>`;
+}
+
+function buildCardFilters(type) {
+  const f = document.getElementById('cd-filters');
+  if (type === 'online' || type === 'offline') {
+    f.innerHTML = deptSelect() +
+      `<input class="cd-filter" id="cd-search" placeholder="Search name…" oninput="renderCardDetail()" style="flex:1;min-width:120px">`;
+  } else if (type === 'tokens') {
+    f.innerHTML = deptSelect() +
+      `<select class="cd-filter" id="cd-sort" onchange="renderCardDetail()"><option value="desc">Most tokens</option><option value="asc">Fewest tokens</option></select>`;
+  } else if (type === 'cost') {
+    f.innerHTML = deptSelect() +
+      `<select class="cd-filter" id="cd-sort" onchange="renderCardDetail()"><option value="desc">Highest cost</option><option value="asc">Lowest cost</option></select>`;
+  } else if (type === 'latency') {
+    f.innerHTML = `<select class="cd-filter" id="cd-sort" onchange="renderCardDetail()"><option value="desc">Slowest first</option><option value="asc">Fastest first</option></select>`;
+  } else if (type === 'alerts') {
+    f.innerHTML = `<select class="cd-filter" id="cd-sev" onchange="renderCardDetail()"><option value="">All severities</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>`;
+  }
+}
+
+function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+
+function renderCardDetail() {
+  const type = _cdType;
+  const el = document.getElementById('cd-content');
+  const dept = val('cd-dept'), sort = val('cd-sort') || 'desc';
+  const linkName = a => `<span class="agent-name-link" onclick="closeCardDetail();openAgentDetail('${a.agent_id}')">${nameOf(a)}</span>`;
+  const byDept = a => !dept || (a.department || 'Unknown') === dept;
+  const empty = msg => `<div class="empty-state"><p>${msg}</p></div>`;
+
+  if (type === 'online' || type === 'offline') {
+    const q = (val('cd-search') || '').toLowerCase();
+    let list = _agents.filter(a => (type === 'offline' ? isOffline(a) : !isOffline(a)))
+      .filter(byDept).filter(a => nameOf(a).toLowerCase().includes(q));
+    el.innerHTML = list.length ? `<table><thead><tr><th>Agent</th><th>Dept</th><th>Status</th><th>Tokens</th><th>Cost</th><th>Heartbeat</th></tr></thead><tbody>` +
+      list.map(a => `<tr><td>${linkName(a)}</td><td style="font-size:12px;color:var(--muted)">${a.department||'–'}</td>
+        <td>${statusHTML(effectiveStatus(a))}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${fmt(a.totals?.tokens||0)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">$${(a.totals?.cost||0).toFixed(4)}</td>
+        <td style="font-family:var(--font-mono);font-size:11px;color:var(--dim)">${a.seconds_since_heartbeat!=null?a.seconds_since_heartbeat+'s ago':'–'}</td></tr>`).join('')
+      + '</tbody></table>' : empty('No matching agents.');
+
+  } else if (type === 'tokens' || type === 'cost') {
+    const key = type === 'tokens' ? (a => a.totals?.tokens||0) : (a => a.totals?.cost||0);
+    let list = _agents.filter(byDept).filter(a => key(a) > 0)
+      .sort((a,b) => sort === 'asc' ? key(a)-key(b) : key(b)-key(a));
+    const fmtV = type === 'tokens' ? (a => fmt(key(a))) : (a => '$'+key(a).toFixed(4));
+    const total = list.reduce((s,a)=>s+key(a),0);
+    el.innerHTML = list.length ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Total: <b style="color:var(--text)">${type==='tokens'?fmt(total):'$'+total.toFixed(4)}</b> across ${list.length} agent(s)</div>`
+      + `<table><thead><tr><th>Agent</th><th>Dept</th><th>${type==='tokens'?'Tokens':'Cost'}</th><th>Calls</th></tr></thead><tbody>` +
+      list.map(a => `<tr><td>${linkName(a)}</td><td style="font-size:12px;color:var(--muted)">${a.department||'–'}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${fmtV(a)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${a.totals?.calls||0}</td></tr>`).join('')
+      + '</tbody></table>' : empty('No data yet.');
+
+  } else if (type === 'latency') {
+    let list = _agents.filter(a => (a.avg_latency_ms||0) > 0)
+      .sort((a,b) => sort === 'asc' ? a.avg_latency_ms-b.avg_latency_ms : b.avg_latency_ms-a.avg_latency_ms);
+    el.innerHTML = list.length ? `<table><thead><tr><th>Agent</th><th>Avg latency</th><th>Executions</th></tr></thead><tbody>` +
+      list.map(a => `<tr><td>${linkName(a)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${fmtLatency(a.avg_latency_ms)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${a.executions_count||0}</td></tr>`).join('')
+      + '</tbody></table>' : empty('No requests recorded yet.');
+
+  } else if (type === 'alerts') {
+    const sev = val('cd-sev');
+    let list = _alerts.filter(a => !sev || a.severity === sev);
+    el.innerHTML = list.length ? `<table><thead><tr><th>Agent</th><th>Severity</th><th>Type</th><th>Title</th><th>When</th></tr></thead><tbody>` +
+      list.map(al => `<tr><td style="font-size:12px">${al.agent_id}</td>
+        <td><span class="pill ${al.severity==='high'?'pill-red':al.severity==='medium'?'pill-amber':'pill-blue'}" style="font-size:10px">${al.severity}</span></td>
+        <td style="font-size:12px;color:var(--muted)">${al.type}</td>
+        <td style="font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${al.title||'–'}</td>
+        <td style="font-family:var(--font-mono);font-size:11px;color:var(--dim)">${ago(al.timestamp)}</td></tr>`).join('')
+      + '</tbody></table>' : empty('No active alerts. 🎉');
+  }
 }
 
 function drillAudit(agentId) {

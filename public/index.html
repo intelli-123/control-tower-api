@@ -311,7 +311,7 @@ nav { padding: 12px 0; flex: 1; }
 /* Hover tooltip (per-card breakdown) */
 .card-tip {
   display: none; position: absolute; left: 0; right: 0; top: 100%; margin-top: 8px;
-  z-index: 100; background: var(--bg, #0d1218); border: 1px solid var(--border2, #2d3a48);
+  z-index: 100; background: var(--surface); border: 1px solid var(--border2);
   border-radius: 10px; padding: 10px 12px; box-shadow: 0 12px 34px rgba(0,0,0,0.55);
   font-size: 11px; line-height: 1.5; max-height: 240px; overflow: auto;
   text-transform: none; letter-spacing: normal; cursor: default;
@@ -710,11 +710,6 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         Audit log
       </div>
 
-      <div class="nav-section" style="margin-top:8px">Control</div>
-      <div class="nav-item" onclick="nav('trigger',this)">
-        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Trigger agent
-      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -1100,19 +1095,6 @@ async function loadDashboard() {
   document.getElementById('m-latency').textContent  = fmtLatency(agentsData?.avg_latency_ms || 0);
   document.getElementById('m-alerts').textContent   = alerts;
   document.getElementById('nb-alerts').textContent  = alerts;
-
-  // Auto-hide cards that have no data (shown again automatically when data appears)
-  const hideIfEmpty = (valueId, isEmpty) => {
-    const el = document.getElementById(valueId);
-    const card = el && el.closest ? el.closest('.metric-card') : null;
-    if (card) card.style.display = isEmpty ? 'none' : '';
-  };
-  hideIfEmpty('m-online',  online.length === 0);
-  hideIfEmpty('m-offline', offline === 0);
-  hideIfEmpty('m-tokens',  totalTk === 0);
-  hideIfEmpty('m-cost',    (costData?.total_cost_usd || 0) === 0);
-  hideIfEmpty('m-latency', (agentsData?.avg_latency_ms || 0) === 0);
-  hideIfEmpty('m-alerts',  alerts === 0);
 
   const topStatus = errors ? `<span class="pill pill-red">${errors} error</span>` :
                     busy   ? `<span class="pill pill-amber">${busy} busy</span>` :
@@ -1664,7 +1646,9 @@ try { applyTheme(localStorage.getItem('ct-theme') || 'dark'); } catch (e) {}
 function drillAudit(agentId) {
   const navItems = document.querySelectorAll('.nav-item');
   navItems.forEach(n=>n.classList.remove('active'));
-  navItems[6].classList.add('active');
+  // Highlight the Audit nav item robustly (no fragile index).
+  const auditNav = [...navItems].find(n => /nav\('audit'/.test(n.getAttribute('onclick')||''));
+  if (auditNav) auditNav.classList.add('active');
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('panel-audit').classList.add('active');
   document.getElementById('page-title').textContent = 'Audit Log';

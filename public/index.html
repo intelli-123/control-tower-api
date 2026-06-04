@@ -1000,6 +1000,15 @@ function fmtLatency(ms) {
   return ms >= 1000 ? (ms/1000).toFixed(2)+'s' : Math.round(ms)+'ms';
 }
 
+// Cost formatter: keeps tiny sub-cent costs visible (toFixed(3) showed $0.000).
+function fmtCost(c) {
+  c = c || 0;
+  if (c === 0)    return '$0';
+  if (c >= 1)     return '$' + c.toFixed(2);
+  if (c >= 0.01)  return '$' + c.toFixed(3);
+  return '$' + c.toFixed(4);
+}
+
 // How long without a heartbeat before the UI treats an agent as offline.
 // This makes the dashboard reflect a shut-down agent on the next refresh,
 // rather than waiting for the backend's slower offline sweep.
@@ -1090,7 +1099,7 @@ async function loadDashboard() {
   document.getElementById('m-online-s').textContent = `${ready} ready · ${busy} busy`;
   document.getElementById('m-offline').textContent  = offline;
   document.getElementById('m-tokens').textContent   = fmt(totalTk);
-  document.getElementById('m-cost').textContent     = '$'+(costData?.total_cost_usd||0).toFixed(3);
+  document.getElementById('m-cost').textContent     = fmtCost(costData?.total_cost_usd);
   document.getElementById('m-cost-s').textContent   = Object.keys(costData?.by_agent||{}).length+' agents tracked';
   document.getElementById('m-latency').textContent  = fmtLatency(agentsData?.avg_latency_ms || 0);
   document.getElementById('m-alerts').textContent   = alerts;
@@ -1352,7 +1361,7 @@ async function loadCost() {
   const data = await apiFetch('/api/cost');
   if (!data) return;
 
-  document.getElementById('c-total').textContent  = '$'+(data.total_cost_usd||0).toFixed(4);
+  document.getElementById('c-total').textContent  = fmtCost(data.total_cost_usd);
   document.getElementById('c-tokens').textContent = fmt(data.total_tokens||0);
   document.getElementById('c-count').textContent  = Object.keys(data.by_agent||{}).length;
 

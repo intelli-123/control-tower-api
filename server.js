@@ -798,6 +798,14 @@ app.listen(PORT, () => {
   console.log('  GET  /api/cost             — cost attribution');
   console.log('  POST /api/escalation       — create escalation');
   console.log('  GET  /api/escalations/:id  — poll for decision\n');
+
+  // Built-in MCP monitoring — auto-discovers & monitors MCP hosts on boot.
+  // Disable with CT_MONITOR_MCP=off. ESM module loaded via dynamic import.
+  if (process.env.CT_MONITOR_MCP !== 'off') {
+    import('./mcp/monitor.js')
+      .then(m => m.startMcpMonitoring({ serverUrl: `http://localhost:${PORT}` }))
+      .catch(e => console.warn('[mcp] monitor not started:', e.message));
+  }
 });
 
 module.exports = app;

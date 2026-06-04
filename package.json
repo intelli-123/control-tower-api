@@ -10,9 +10,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "helmet": "^8.2.0",
+    "llama3-tokenizer-js": "^1.2.0",
     "morgan": "^1.10.1",
     "node-sqlite3-wasm": "^0.8.57",
     "uuid": "^14.0.0"

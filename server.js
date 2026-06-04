@@ -76,6 +76,9 @@ try {
 }
 const pct = (spent, budget) => (budget > 0 ? +((spent / budget) * 100).toFixed(1) : null);
 
+// Shared dashboard password (same for all stakeholders). Override via env CT_PASSWORD.
+const AUTH_PASSWORD = process.env.CT_PASSWORD || 'control-tower';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function now() { return new Date().toISOString(); }
 
@@ -196,6 +199,19 @@ app.get('/api/health', (req, res) => {
     agents:    Object.keys(store.agents).length,
     uptime_s:  Math.floor(process.uptime()),
   });
+});
+
+/**
+ * POST /api/login  { password }
+ * Shared password for all stakeholders (CT_PASSWORD env, default 'control-tower').
+ * Returns a session token on success; 401 otherwise.
+ */
+app.post('/api/login', (req, res) => {
+  const { password } = req.body || {};
+  if (password && password === AUTH_PASSWORD) {
+    return res.json({ ok: true, token: uuidv4() });
+  }
+  return res.status(401).json({ ok: false, error: 'Invalid password' });
 });
 
 /**

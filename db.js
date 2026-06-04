@@ -73,6 +73,15 @@ function recentExecutions(maxAgeMs = DAY_MS, nowMs) {
   } catch { return []; }
 }
 
+/** Per-agent token/cost totals from persisted executions (last `maxAgeMs`). */
+function executionTotals(maxAgeMs = DAY_MS, nowMs) {
+  if (!db) return [];
+  const cutoff = (nowMs || Date.now()) - maxAgeMs;
+  try {
+    return db.all('SELECT agent_id, SUM(tokens) AS tokens, SUM(cost) AS cost, COUNT(*) AS n FROM executions WHERE ts >= ? GROUP BY agent_id', [cutoff]);
+  } catch { return []; }
+}
+
 /** Per-agent cumulative snapshot history (for charts/export). */
 function agentHistory(agentId, fromTs = 0) {
   if (!db) return [];
@@ -82,6 +91,6 @@ function agentHistory(agentId, fromTs = 0) {
 }
 
 module.exports = {
-  init, recordExecution, snapshotAgents, prune, recentExecutions, agentHistory,
+  init, recordExecution, snapshotAgents, prune, recentExecutions, executionTotals, agentHistory,
   get enabled() { return !!db; },
 };

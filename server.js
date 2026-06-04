@@ -42,9 +42,14 @@ const store = {
 
 // ─── Persistence (SQLite/wasm, 1-day retention) ──────────────────────────────
 dbStore.init();
+store.carryover = {};   // per-agent totals rehydrated from persisted executions
 try {
   const rows = dbStore.recentExecutions();   // rehydrate last 24h on startup
   if (rows.length) { store.executions = rows; console.log(`[db] rehydrated ${rows.length} executions`); }
+  // Seed cumulative totals so the cards/table match the (persisted) detail view after a restart.
+  for (const r of dbStore.executionTotals()) {
+    store.carryover[r.agent_id] = { tokens: r.tokens || 0, cost: r.cost || 0, calls: r.n || 0 };
+  }
 } catch { /* ignore */ }
 // Periodic cumulative snapshot + prune to 24h
 setInterval(() => {
@@ -231,8 +236,10 @@ app.post('/api/heartbeat', (req, res) => {
     metrics.cost_usd = estimateCost(body.model, metrics.tokens_input, metrics.tokens_output);
   }
 
-  // Accumulate totals
-  const prev = existing.totals || { tokens: 0, cost: 0, calls: 0 };
+  // Accumulate totals. On the agent's first heartbeat after a restart, start
+  // from the totals rehydrated from persisted executions (so the cards/table
+  // match the detail view) instead of zero.
+  const prev = existing.totals || store.carryover[agentId] || { tokens: 0, cost: 0, calls: 0 };
   const newTotals = {
     tokens: prev.tokens + (metrics.tokens_total || 0),
     cost:   prev.cost   + (metrics.cost_usd    || 0),

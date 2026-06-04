@@ -323,6 +323,18 @@ nav { padding: 12px 0; flex: 1; }
 /* Filter bar (card detail) */
 .cd-filter { font-size: 12px; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border2, #2d3a48);
   background: var(--bg, #0d1218); color: var(--text, #e6edf3); }
+
+/* Print → Save as PDF: show only the open modal, drop the app chrome */
+@media print {
+  .orb, body::before, .card-tip, .modal-close, .cd-filter, .preset-btn { display: none !important; }
+  body.modal-open .shell { display: none !important; }
+  .modal-overlay:not(.open) { display: none !important; }
+  .modal-overlay.open { position: static; display: block; background: none; padding: 0; }
+  .modal { max-width: 100%; max-height: none; overflow: visible; box-shadow: none; border: 1px solid #ccc; }
+  body { background: #fff; }
+  * { color: #000 !important; }
+  .modal-head .btn { display: none !important; }
+}
 .metric-card::after {
   content: '';
   position: absolute;
@@ -856,7 +868,11 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="cd-title">Detail</div>
-      <button class="modal-close" onclick="closeCardDetail()">×</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" onclick="exportCard()" title="Download CSV (opens in Excel)">⬇ CSV</button>
+        <button class="btn" onclick="window.print()" title="Print / Save as PDF">🖨 Print</button>
+        <button class="modal-close" onclick="closeCardDetail()">×</button>
+      </div>
     </div>
     <div class="modal-body">
       <div id="cd-filters" style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
@@ -870,7 +886,11 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title" id="ad-title">Agent</div>
-      <button class="modal-close" onclick="closeAgentDetail()">×</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" onclick="exportAgent()" title="Download executions CSV (opens in Excel)">⬇ CSV</button>
+        <button class="btn" onclick="window.print()" title="Print / Save as PDF">🖨 Print</button>
+        <button class="modal-close" onclick="closeAgentDetail()">×</button>
+      </div>
     </div>
     <div class="modal-body">
       <div style="margin-bottom:14px">
@@ -1102,7 +1122,7 @@ async function loadDashboard() {
 
 // ── Lineage ───────────────────────────────────────────────────────────────────
 async function loadLineage() {
-  const data = await apiFetch('/api/agents');
+  const [data, lin] = await Promise.all([apiFetch('/api/agents'), apiFetch('/api/lineage')]);
   const agents = data?.agents || [];
   const canvas = document.getElementById('dag-canvas');
   const wrap   = canvas.parentElement;
@@ -1133,9 +1153,11 @@ async function loadLineage() {
 
   const aN = agentNodes.map((a, i) => ({
     label: (a.name||a.agent_id).split(' ')[0],
+    id: a.agent_id,
     x: spacing * (i+1), y: agentY,
     color: statusColor[effectiveStatus(a)]||'#5A6A7A', r: 22, type: 'agent', status: effectiveStatus(a),
   }));
+  const posById = {}; aN.forEach(n => { posById[n.id] = n; });
 
   const tSpacing = W / (allTools.length + 1);
   const tN = allTools.map((t, i) => ({
@@ -1161,6 +1183,31 @@ async function loadLineage() {
     const src = aN[i % aN.length];
     if (src) drawEdge(src, t, true, '#7B6EF6');
   });
+
+  // Interdependency edges (agent → agent), curved below the agent row.
+  const interEdges = (lin?.edges || []).filter(e => posById[e.from] && posById[e.to]);
+  interEdges.forEach(e => {
+    const a = posById[e.from], b = posById[e.to];
+    const color = e.kind === 'depends' ? '#7B6EF6' : '#F5A623';
+    const midX = (a.x + b.x) / 2, dip = agentY + 60;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y + a.r);
+    ctx.quadraticCurveTo(midX, dip, b.x, b.y + b.r);
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.85; ctx.lineWidth = 1.6; ctx.setLineDash([]);
+    ctx.stroke(); ctx.globalAlpha = 1;
+    // arrowhead at target
+    const ang = Math.atan2((b.y + b.r) - dip, b.x - midX);
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y + b.r);
+    ctx.lineTo(b.x - 8 * Math.cos(ang - 0.45), (b.y + b.r) - 8 * Math.sin(ang - 0.45));
+    ctx.moveTo(b.x, b.y + b.r);
+    ctx.lineTo(b.x - 8 * Math.cos(ang + 0.45), (b.y + b.r) - 8 * Math.sin(ang + 0.45));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.stroke();
+  });
+  if (interEdges.length) {
+    ctx.fillStyle = '#F5A623'; ctx.font = '10px DM Mono, monospace'; ctx.textAlign = 'left';
+    ctx.fillText('→ interdependency (trigger / depends)', 12, H - 10);
+  }
 
   // Draw nodes
   const drawNode = (n) => {
@@ -1351,11 +1398,13 @@ function openAgentDetail(agentId) {
   const a = (_agents || []).find(x => x.agent_id === agentId);
   document.getElementById('ad-title').textContent = (a?.name || agentId) + ' — executions';
   document.getElementById('agent-modal').classList.add('open');
+  document.body.classList.add('modal-open');
   loadAgentDetail();
 }
 
 function closeAgentDetail() {
   document.getElementById('agent-modal').classList.remove('open');
+  document.body.classList.remove('modal-open');
   _detailAgent = null;
 }
 
@@ -1451,10 +1500,20 @@ function openCardDetail(type) {
   _cdType = type;
   document.getElementById('cd-title').textContent = CARD_TITLES[type] || 'Detail';
   document.getElementById('card-modal').classList.add('open');
+  document.body.classList.add('modal-open');
   buildCardFilters(type);
   renderCardDetail();
 }
-function closeCardDetail() { document.getElementById('card-modal').classList.remove('open'); _cdType = null; }
+function closeCardDetail() { document.getElementById('card-modal').classList.remove('open'); document.body.classList.remove('modal-open'); _cdType = null; }
+
+// Export the current card's data as CSV (opens in Excel).
+function exportCard() {
+  const url = _cdType === 'alerts' ? '/api/export/alerts.csv' : '/api/export/agents.csv';
+  window.open(url, '_blank');
+}
+function exportAgent() {
+  if (_detailAgent) window.open(`/api/agents/${encodeURIComponent(_detailAgent)}/executions.csv`, '_blank');
+}
 
 function departments() { return [...new Set(_agents.map(a => a.department || 'Unknown'))].sort(); }
 function deptSelect() {

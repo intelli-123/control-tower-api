@@ -18,6 +18,7 @@ const cors    = require('cors');
 const helmet  = require('helmet');
 const morgan  = require('morgan');
 const { v4: uuidv4 } = require('uuid');
+const dbStore = require('./db');
 
 const app  = express();
 const PORT = process.env.PORT || 3090;
@@ -38,6 +39,18 @@ const store = {
   executions:  [],   // Execution[] — one per completed request (task_start→task_complete)
   openExec:    {},   // { [agent_id]: { started_at, task, tokens, cost } } in-flight requests
 };
+
+// ─── Persistence (SQLite/wasm, 1-day retention) ──────────────────────────────
+dbStore.init();
+try {
+  const rows = dbStore.recentExecutions();   // rehydrate last 24h on startup
+  if (rows.length) { store.executions = rows; console.log(`[db] rehydrated ${rows.length} executions`); }
+} catch { /* ignore */ }
+// Periodic cumulative snapshot + prune to 24h
+setInterval(() => {
+  dbStore.snapshotAgents(Object.values(store.agents));
+  dbStore.prune();
+}, 60_000);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const OFFLINE_THRESHOLD_MS  = 60_000;  // mark offline after 60s no heartbeat
@@ -244,6 +257,7 @@ app.post('/api/heartbeat', (req, res) => {
     current_task:    body.current_task    || existing.current_task    || null,
     model:           body.model           || existing.model           || 'unknown',
     framework:       body.framework       || existing.framework       || inferFramework(body),
+    depends_on:      body.depends_on       || existing.depends_on       || [],
     tools:           body.tools           || existing.tools           || [],
     last_heartbeat:  now(),
     first_seen:      existing.first_seen  || now(),
@@ -284,7 +298,7 @@ app.post('/api/heartbeat', (req, res) => {
     open.cost   += metrics.cost_usd     || 0;
   }
   if (ev === 'task_complete' && open) {
-    store.executions.unshift({
+    const exec = {
       id:           uuidv4(),
       agent_id:     agentId,
       task:         open.task,
@@ -293,7 +307,9 @@ app.post('/api/heartbeat', (req, res) => {
       latency_ms:   Date.now() - new Date(open.started_at).getTime(),
       tokens:       open.tokens,
       cost:         +open.cost.toFixed(6),
-    });
+    };
+    store.executions.unshift(exec);
+    dbStore.recordExecution(exec);            // persist (1-day retention)
     if (store.executions.length > 2000) store.executions.pop();
     delete store.openExec[agentId];
   }
@@ -629,6 +645,83 @@ app.get('/api/cost', (req, res) => {
     by_agent:          byAgent,
     by_department:     byDept,
     timestamp:         now(),
+  });
+});
+
+// ─── CSV export (Excel-openable, no dependencies) ───────────────────────────
+function toCsv(rows, cols) {
+  const esc = v => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const head = cols.map(c => esc(c.label)).join(',');
+  const body = rows.map(r => cols.map(c => esc(typeof c.get === 'function' ? c.get(r) : r[c.key])).join(',')).join('\n');
+  return head + '\n' + body + '\n';
+}
+function sendCsv(res, filename, csv) {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
+}
+function agentExecAgg(agentId) {
+  const ex = store.executions.filter(e => e.agent_id === agentId);
+  const avg = ex.length ? Math.round(ex.reduce((s, e) => s + e.latency_ms, 0) / ex.length) : 0;
+  return { count: ex.length, avg };
+}
+
+// All agents (covers the online/offline/tokens/cost/latency cards)
+app.get('/api/export/agents.csv', (req, res) => {
+  const rows = Object.values(store.agents).map(a => {
+    const agg = agentExecAgg(a.agent_id);
+    return { ...a, tokens: a.totals?.tokens || 0, cost: a.totals?.cost || 0, calls: a.totals?.calls || 0,
+             executions: agg.count, avg_latency_ms: agg.avg };
+  });
+  sendCsv(res, 'agents.csv', toCsv(rows, [
+    { key: 'agent_id', label: 'Agent ID' }, { key: 'name', label: 'Name' },
+    { key: 'department', label: 'Department' }, { key: 'framework', label: 'Framework' },
+    { key: 'model', label: 'Model' }, { key: 'status', label: 'Status' },
+    { key: 'tokens', label: 'Tokens' }, { get: r => (r.cost || 0).toFixed(6), label: 'Cost USD' },
+    { key: 'calls', label: 'Calls' }, { key: 'executions', label: 'Executions' },
+    { key: 'avg_latency_ms', label: 'Avg latency ms' },
+  ]));
+});
+
+// Per-agent executions (latency/tokens/cost per request)
+app.get('/api/agents/:id/executions.csv', (req, res) => {
+  const rows = store.executions.filter(e => e.agent_id === req.params.id);
+  sendCsv(res, `${req.params.id}-executions.csv`, toCsv(rows, [
+    { key: 'started_at', label: 'Started' }, { key: 'completed_at', label: 'Completed' },
+    { key: 'task', label: 'Task' }, { key: 'latency_ms', label: 'Latency ms' },
+    { key: 'tokens', label: 'Tokens' }, { get: r => (r.cost || 0).toFixed(6), label: 'Cost USD' },
+  ]));
+});
+
+// Alerts card
+app.get('/api/export/alerts.csv', (req, res) => {
+  sendCsv(res, 'alerts.csv', toCsv(store.alerts, [
+    { key: 'agent_id', label: 'Agent' }, { key: 'severity', label: 'Severity' },
+    { key: 'type', label: 'Type' }, { key: 'title', label: 'Title' },
+    { key: 'timestamp', label: 'When' }, { get: r => r.resolved ? 'resolved' : 'active', label: 'State' },
+  ]));
+});
+
+// Per-agent cumulative history (persisted snapshots, last 24h)
+app.get('/api/agents/:id/history', (req, res) => {
+  const fromTs = req.query.from ? new Date(req.query.from).getTime() : Date.now() - 24 * 3600 * 1000;
+  res.json({ agent_id: req.params.id, history: dbStore.agentHistory(req.params.id, fromTs || 0), persisted: dbStore.enabled });
+});
+
+// ─── Lineage (agent → agent interdependency) ─────────────────────────────────
+app.get('/api/lineage', (req, res) => {
+  const ids = new Set(Object.keys(store.agents));
+  const edges = [], seen = new Set();
+  const add = (from, to, kind) => {
+    if (from && to && from !== to && ids.has(from) && ids.has(to)) {
+      const k = `${from}->${to}`; if (!seen.has(k)) { seen.add(k); edges.push({ from, to, kind }); }
+    }
+  };
+  for (const r of store.runs) add(r.triggered_by, r.agent_id, 'trigger');     // who triggered whom
+  for (const a of Object.values(store.agents)) (a.depends_on || []).forEach(d => add(a.agent_id, d, 'depends'));
+  res.json({
+    nodes: Object.values(store.agents).map(a => ({ agent_id: a.agent_id, name: a.name, status: a.status, framework: a.framework })),
+    edges,
   });
 });
 

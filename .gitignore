@@ -1,4 +1,6 @@
 node_modules/
+control-tower.db
+control-tower.db-*
 .env
 .env.*
 *.log

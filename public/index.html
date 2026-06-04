@@ -27,6 +27,26 @@
   --font-mono:    'DM Mono', monospace;
 }
 
+/* Light ("morning") theme — toggled by adding .light to <body> */
+body.light {
+  --bg:       #F4F6F9;
+  --bg2:      #EAEEF3;
+  --bg3:      #E2E8F0;
+  --surface:  #FFFFFF;
+  --border:   rgba(0,0,0,0.08);
+  --border2:  rgba(0,0,0,0.16);
+  --text:     #18222C;
+  --muted:    #5A6A7A;
+  --dim:      #94A3B8;
+  --accent:   #0091B3;
+  --green:    #0A9D6E;
+  --amber:    #B9791A;
+  --red:      #D93444;
+}
+body.light::before { background-image:
+  linear-gradient(rgba(0,0,0,0.025) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(0,0,0,0.025) 1px, transparent 1px); }
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html { scroll-behavior: smooth; }
@@ -693,6 +713,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="topbar-right">
         <span class="pill pill-blue" id="top-agents">– agents</span>
         <span class="pill" id="top-status">–</span>
+        <button class="btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark theme">🌙 Dark</button>
         <button class="btn" onclick="refreshCurrent()">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           Refresh
@@ -1012,6 +1033,19 @@ async function loadDashboard() {
   document.getElementById('m-alerts').textContent   = alerts;
   document.getElementById('nb-alerts').textContent  = alerts;
 
+  // Auto-hide cards that have no data (shown again automatically when data appears)
+  const hideIfEmpty = (valueId, isEmpty) => {
+    const el = document.getElementById(valueId);
+    const card = el && el.closest ? el.closest('.metric-card') : null;
+    if (card) card.style.display = isEmpty ? 'none' : '';
+  };
+  hideIfEmpty('m-online',  online.length === 0);
+  hideIfEmpty('m-offline', offline === 0);
+  hideIfEmpty('m-tokens',  totalTk === 0);
+  hideIfEmpty('m-cost',    (costData?.total_cost_usd || 0) === 0);
+  hideIfEmpty('m-latency', (agentsData?.avg_latency_ms || 0) === 0);
+  hideIfEmpty('m-alerts',  alerts === 0);
+
   const topStatus = errors ? `<span class="pill pill-red">${errors} error</span>` :
                     busy   ? `<span class="pill pill-amber">${busy} busy</span>` :
                              `<span class="pill pill-green">all healthy</span>`;
@@ -1030,9 +1064,10 @@ async function loadDashboard() {
                 + ((a.tools||[]).length>4 ? `<span class="tool-chip">+${a.tools.length-4}</span>` : '');
     const hb = a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat+'s ago' : '–';
     return `<tr>
-      <td style="min-width:140px">
+      <td style="min-width:160px">
         <div class="agent-name-link" onclick="openAgentDetail('${a.agent_id}')" title="View agent detail">${a.name||a.agent_id}</div>
-        <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-top:1px">${a.department||''}</div>
+        <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-top:1px">${a.framework||'—'} · ${a.department||'—'}</div>
+        <div style="font-size:10px;font-family:var(--font-mono);color:var(--dim);margin-top:1px" title="model">${a.model||'—'}</div>
       </td>
       <td>${statusHTML(effectiveStatus(a))}</td>
       <td style="max-width:180px;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.current_task||'–'}</td>
@@ -1501,6 +1536,19 @@ function renderCardDetail() {
       + '</tbody></table>' : empty('No active alerts. 🎉');
   }
 }
+
+// ── Theme (dark / morning) ───────────────────────────────────────────────────
+function applyTheme(t) {
+  const light = t === 'light';
+  document.body.classList.toggle('light', light);
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = light ? '☀️ Morning' : '🌙 Dark';
+  try { localStorage.setItem('ct-theme', t); } catch (e) {}
+}
+function toggleTheme() {
+  applyTheme(document.body.classList.contains('light') ? 'dark' : 'light');
+}
+try { applyTheme(localStorage.getItem('ct-theme') || 'dark'); } catch (e) {}
 
 function drillAudit(agentId) {
   const navItems = document.querySelectorAll('.nav-item');

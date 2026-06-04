@@ -63,6 +63,14 @@ function estimateCost(model, inputTokens = 0, outputTokens = 0) {
          (outputTokens / 1000) * rates.output;
 }
 
+// Best-effort framework detection when an agent doesn't report one.
+function inferFramework(body = {}) {
+  if (body.framework) return body.framework;
+  const m = String(body.model || '').toLowerCase();
+  if (m.startsWith('mcp:') || m.startsWith('mcp ')) return 'MCP';
+  return 'unknown';
+}
+
 function addAudit(agentId, label, detail, tokens = null, meta = {}) {
   store.auditLog.unshift({
     id:        uuidv4(),
@@ -235,6 +243,7 @@ app.post('/api/heartbeat', (req, res) => {
     status:          body.status          || existing.status          || 'ready',
     current_task:    body.current_task    || existing.current_task    || null,
     model:           body.model           || existing.model           || 'unknown',
+    framework:       body.framework       || existing.framework       || inferFramework(body),
     tools:           body.tools           || existing.tools           || [],
     last_heartbeat:  now(),
     first_seen:      existing.first_seen  || now(),

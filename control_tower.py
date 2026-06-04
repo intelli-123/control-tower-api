@@ -9,7 +9,7 @@ Usage (any framework — LangChain, CrewAI, raw Anthropic SDK):
         agent_id    = "finance-agent-01",
         name        = "Finance Agent",
         department  = "Finance",
-        server_url  = "http://localhost:3000",  # your Control Tower API
+        server_url  = "http://localhost:3090",  # your Control Tower API
     )
 
     # Start heartbeat loop in background (auto-discovers tools)
@@ -34,6 +34,7 @@ import threading
 import time
 import inspect
 import sys
+import json
 import logging
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -55,6 +56,7 @@ class ControlTower:
         name:        str  = None,
         department:  str  = "Unknown",
         model:       str  = None,
+        framework:   str  = None,
         heartbeat_interval: int = 30,   # seconds
         auto_discover_tools: bool = True,
     ):
@@ -63,6 +65,7 @@ class ControlTower:
         self.name       = name or agent_id
         self.department = department
         self.model      = model
+        self.framework  = framework
         self.interval   = heartbeat_interval
 
         # Rolling metrics — reset each heartbeat
@@ -155,7 +158,10 @@ class ControlTower:
         if error:
             self._error_count += 1
 
-        detail = f"{tool_name}({params or ''})"
+        try:
+            detail = f"{tool_name}({json.dumps(params or {})[:150]})"
+        except (TypeError, ValueError):
+            detail = f"{tool_name}({str(params or '')[:150]})"
         if error:
             detail += f" → ERROR: {error}"
 
@@ -237,32 +243,46 @@ class ControlTower:
             agent = initialize_agent(..., callbacks=[ct.as_langchain_callback()])
         """
         ct = self
+        BaseCallbackHandler = None
         try:
-            from langchain.callbacks.base import BaseCallbackHandler
-
-            class CTCallback(BaseCallbackHandler):
-                def on_llm_end(self, response, **kwargs):
-                    usage = response.llm_output.get("token_usage", {}) if response.llm_output else {}
-                    ct._tokens_input  += usage.get("prompt_tokens", 0)
-                    ct._tokens_output += usage.get("completion_tokens", 0)
-                    ct._calls_made    += 1
-
-                def on_tool_start(self, serialized, input_str, **kwargs):
-                    ct.tool_call(serialized.get("name", "unknown"), {"input": input_str[:200]})
-
-                def on_tool_error(self, error, **kwargs):
-                    ct._error_count += 1
-
-                def on_agent_action(self, action, **kwargs):
-                    ct.set_status("busy", str(action.tool)[:100])
-
-                def on_agent_finish(self, finish, **kwargs):
-                    ct.set_status("ready")
-
-            return CTCallback()
+            from langchain_core.callbacks.base import BaseCallbackHandler
         except ImportError:
-            logger.warning("[ControlTower] LangChain not installed — callback unavailable")
-            return None
+            try:
+                from langchain.callbacks.base import BaseCallbackHandler
+            except ImportError:
+                logger.warning("[ControlTower] LangChain not installed — callback unavailable")
+                return None
+
+        class CTCallback(BaseCallbackHandler):
+            def on_llm_end(self, response, **kwargs):
+                out = getattr(response, "llm_output", None) or {}
+                usage = out.get("token_usage") or out.get("usage") or {}
+                in_tok  = usage.get("prompt_tokens",     usage.get("input_tokens",  0)) or 0
+                out_tok = usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0
+                ct._tokens_input  += in_tok
+                ct._tokens_output += out_tok
+                ct._calls_made    += 1
+                # Attribute tokens to the LLM call itself (emit an llm_response event)
+                # rather than letting them ride along on the next tool_call heartbeat.
+                ct._post("/api/heartbeat", ct._build_payload(
+                    event="llm_response",
+                    event_detail=f"Tokens: in={in_tok} out={out_tok}",
+                ))
+
+            def on_tool_start(self, serialized, input_str, **kwargs):
+                name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
+                ct.tool_call(name, {"input": str(input_str)[:200]})
+
+            def on_tool_error(self, error, **kwargs):
+                ct._error_count += 1
+
+            def on_agent_action(self, action, **kwargs):
+                ct.set_status("busy", str(getattr(action, "tool", ""))[:100])
+
+            def on_agent_finish(self, finish, **kwargs):
+                ct.set_status("ready")
+
+        return CTCallback()
 
     def as_crewai_callback(self):
         """Returns a CrewAI-compatible step callback."""
@@ -313,6 +333,7 @@ class ControlTower:
             "status":            status or self._status,
             "current_task":      self._current_task,
             "model":             self.model,
+            "framework":         self.framework,
             "tools":             self._tools,
             "recent_tool_calls": self._recent_tools[-10:],
             "metrics": {
@@ -327,6 +348,16 @@ class ControlTower:
         if event:
             payload["event"]        = event
             payload["event_detail"] = event_detail or ""
+
+        # Delta reporting: the server SUMS tokens & calls from every heartbeat it
+        # receives, but one request can emit several heartbeats (event posts,
+        # task_complete, and the periodic tick). Clear the additive counters once
+        # they've been packed into a payload so the same usage isn't counted 2-3x.
+        self._tokens_input = 0
+        self._tokens_output = 0
+        self._calls_made   = 0
+        self._error_count  = 0
+
         return payload
 
     def _normalize_tools(self, tools) -> List[str]:

@@ -65,12 +65,16 @@ const LOOP_DETECTION_WINDOW  = 5;      // flag if same tool called >5× in 10s
 // Cost per 1K tokens by model (input / output) — editable in cost-config.json.
 // Falls back to a built-in default if the file is missing or malformed.
 let COST_TABLE = { default: { input: 0.003, output: 0.015 } };
+let BUDGETS = { total: 0, by_department: {}, by_agent: {} };
 try {
-  COST_TABLE = require('./cost-config.json').models || COST_TABLE;
-  console.log(`[cost] Loaded ${Object.keys(COST_TABLE).length} model rates from cost-config.json`);
+  const cfg = require('./cost-config.json');
+  COST_TABLE = cfg.models   || COST_TABLE;
+  BUDGETS    = cfg.budgets  || BUDGETS;
+  console.log(`[cost] Loaded ${Object.keys(COST_TABLE).length} model rates and budgets from cost-config.json`);
 } catch (e) {
   console.warn('[cost] cost-config.json not loaded, using built-in default:', e.message);
 }
+const pct = (spent, budget) => (budget > 0 ? +((spent / budget) * 100).toFixed(1) : null);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function now() { return new Date().toISOString(); }
@@ -635,6 +639,8 @@ app.get('/api/cost', (req, res) => {
       cost:   parseFloat(cost.toFixed(4)),
       tokens,
       calls:  agent.totals?.calls || 0,
+      budget: BUDGETS.by_agent?.[agent.agent_id] ?? null,
+      pct:    pct(cost, BUDGETS.by_agent?.[agent.agent_id]),
     };
 
     byDept[dept] = {
@@ -643,16 +649,34 @@ app.get('/api/cost', (req, res) => {
     };
   }
 
+  // Attach department budgets + % used
+  for (const [dept, d] of Object.entries(byDept)) {
+    d.budget = BUDGETS.by_department?.[dept] ?? null;
+    d.pct    = pct(d.cost, d.budget);
+  }
+
   const totalCost   = Object.values(byAgent).reduce((s, a) => s + a.cost, 0);
   const totalTokens = Object.values(byAgent).reduce((s, a) => s + a.tokens, 0);
 
   res.json({
     total_cost_usd:    parseFloat(totalCost.toFixed(4)),
     total_tokens:      totalTokens,
+    total_budget:      BUDGETS.total || null,
+    total_pct:         pct(totalCost, BUDGETS.total),
+    budgets:           BUDGETS,
     by_agent:          byAgent,
     by_department:     byDept,
     timestamp:         now(),
   });
+});
+
+/**
+ * GET /api/cost/trend?from=<ISO>
+ * Time-series of total tokens/cost across all agents (from persisted snapshots).
+ */
+app.get('/api/cost/trend', (req, res) => {
+  const fromTs = req.query.from ? new Date(req.query.from).getTime() : Date.now() - 24 * 3600 * 1000;
+  res.json({ from: fromTs, points: dbStore.costTrend(fromTs || 0), persisted: dbStore.enabled });
 });
 
 // ─── CSV export (Excel-openable, no dependencies) ───────────────────────────

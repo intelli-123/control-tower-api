@@ -327,6 +327,49 @@ nav { padding: 12px 0; flex: 1; }
 .cd-filter { font-size: 12px; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border2, #2d3a48);
   background: var(--bg, #0d1218); color: var(--text, #e6edf3); }
 
+/* Login / role selection */
+#login-screen {
+  position: fixed; inset: 0; z-index: 500; display: none;
+  align-items: center; justify-content: center; padding: 24px;
+  background: var(--bg);
+}
+#login-screen.show { display: flex; }
+.login-box {
+  width: 100%; max-width: 720px; background: var(--surface);
+  border: 1px solid var(--border2); border-radius: 16px; padding: 28px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.5);
+}
+.login-head { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.login-logo {
+  width: 44px; height: 44px; border-radius: 10px; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+}
+.login-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text); }
+.login-sub { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+.login-roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 12px; }
+.role-card {
+  text-align: left; cursor: pointer; padding: 16px; border-radius: 12px;
+  border: 1px solid var(--border2); background: var(--bg); color: var(--text);
+  transition: border-color .15s, transform .1s;
+}
+.role-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.role-card .rc-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.role-card .rc-desc { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.login-foot { margin-top: 20px; font-size: 11px; color: var(--dim); font-family: var(--font-mono); text-align: center; }
+
+/* Role metric-card tones + budget bar */
+.metric-value.tone-ok   { color: var(--green); }
+.metric-value.tone-warn { color: var(--amber); }
+.metric-value.tone-bad  { color: var(--red); }
+.budget-bar { height: 5px; border-radius: 3px; background: var(--border2); margin-top: 8px; overflow: hidden; }
+.budget-bar > span { display: block; height: 100%; border-radius: 3px; }
+
+/* Chart cards */
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.chart-card .chart-title { font-size: 12px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 12px; }
+.chart-card canvas { width: 100%; display: block; }
+
 /* Help modal */
 .help-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .help-item:last-child { border-bottom: none; }
@@ -663,6 +706,21 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
 <div class="orb orb-1"></div>
 <div class="orb orb-2"></div>
 
+<!-- Login / role selection -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-head">
+      <div class="login-logo">🗼</div>
+      <div>
+        <div class="login-title">Agent Control Tower</div>
+        <div class="login-sub">Choose your view to sign in</div>
+      </div>
+    </div>
+    <div class="login-roles" id="login-roles"><!-- filled by JS --></div>
+    <div class="login-foot">Role-based view · you can switch anytime via Logout</div>
+  </div>
+</div>
+
 <div class="shell">
 
   <!-- Sidebar -->
@@ -684,6 +742,10 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="nav-item active" onclick="nav('dashboard',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         Dashboard
+      </div>
+      <div class="nav-item" onclick="nav('charts',this)" data-nav="charts">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Charts
       </div>
       <div class="nav-item" onclick="nav('lineage',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4M12 11l-5 6M12 11l5 6"/></svg>
@@ -729,7 +791,9 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="topbar-right">
         <span class="pill pill-blue" id="top-agents">– agents</span>
         <span class="pill" id="top-status">–</span>
+        <span class="pill pill-blue" id="top-role" title="Current view">–</span>
         <button class="btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark theme">🌙 Dark</button>
+        <button class="btn" onclick="logout()" title="Sign out / switch role">⎋ Logout</button>
         <button class="btn" onclick="openHelp()" title="What do these sections mean?">? Help</button>
         <button class="btn" onclick="refreshCurrent()">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
@@ -742,14 +806,11 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
 
       <!-- DASHBOARD -->
       <div class="panel active" id="panel-dashboard">
-        <div class="metrics" id="metrics-row">
-          <div class="metric-card" onclick="openCardDetail('online')"><div class="metric-label">Agents online</div><div class="metric-value" id="m-online" style="color:var(--green)">–</div><div class="metric-sub" id="m-online-s">loading</div><div class="metric-accent">⬡</div><div class="card-tip" id="tip-online"></div></div>
-          <div class="metric-card" onclick="openCardDetail('offline')"><div class="metric-label">Agents offline</div><div class="metric-value" id="m-offline" style="color:var(--muted)">–</div><div class="metric-sub">not reporting</div><div class="metric-accent">⬡</div><div class="card-tip" id="tip-offline"></div></div>
-          <div class="metric-card" onclick="openCardDetail('tokens')"><div class="metric-label">Tokens today</div><div class="metric-value" id="m-tokens">–</div><div class="metric-sub">cumulative</div><div class="metric-accent">◈</div><div class="card-tip" id="tip-tokens"></div></div>
-          <div class="metric-card" onclick="openCardDetail('cost')"><div class="metric-label">Cost today</div><div class="metric-value" id="m-cost">–</div><div class="metric-sub" id="m-cost-s">across all agents</div><div class="metric-accent">◇</div><div class="card-tip" id="tip-cost"></div></div>
-          <div class="metric-card" onclick="openCardDetail('latency')"><div class="metric-label">Avg latency</div><div class="metric-value" id="m-latency">–</div><div class="metric-sub">per request</div><div class="metric-accent">◷</div><div class="card-tip" id="tip-latency"></div></div>
-          <div class="metric-card" onclick="openCardDetail('alerts')"><div class="metric-label">Active alerts</div><div class="metric-value" id="m-alerts" style="color:var(--red)">–</div><div class="metric-sub">unresolved</div><div class="metric-accent">△</div><div class="card-tip" id="tip-alerts"></div></div>
+        <div id="team-selector-wrap" style="display:none;margin-bottom:14px;align-items:center;gap:8px">
+          <span style="font-size:11px;font-family:var(--font-mono);color:var(--muted)">Team:</span>
+          <select class="cd-filter" id="team-selector" onchange="onTeamChange()"></select>
         </div>
+        <div class="metrics" id="metrics-row"></div>
         <div class="section-head">
           <div class="section-title">All agents</div>
           <span class="pill pill-blue" style="font-size:10px">live · auto-refresh 15s</span>
@@ -757,6 +818,15 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         <div class="table-card" id="agents-table-wrap">
           <div class="loading"><div class="spin"></div> Loading agents…</div>
         </div>
+      </div>
+
+      <!-- CHARTS -->
+      <div class="panel" id="panel-charts">
+        <div class="section-head">
+          <div class="section-title">Charts</div>
+          <span class="pill pill-blue" style="font-size:10px" id="charts-role-label">—</span>
+        </div>
+        <div id="charts-wrap" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px"></div>
       </div>
 
       <!-- LINEAGE -->
@@ -1051,6 +1121,7 @@ function nav(name, el) {
 
 function loadPanel(name) {
   if (name === 'dashboard')  loadDashboard();
+  else if (name === 'charts')      renderCharts();
   else if (name === 'lineage')    loadLineage();
   else if (name === 'alerts')     loadAlerts();
   else if (name === 'escalation') loadEscalations();
@@ -1077,38 +1148,38 @@ async function checkHealth() {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function loadDashboard() {
-  const [agentsData, alertsData, costData] = await Promise.all([
+  const [agentsData, alertsData, costData, escData] = await Promise.all([
     apiFetch('/api/agents'),
     apiFetch('/api/alerts?resolved=false'),
     apiFetch('/api/cost'),
+    apiFetch('/api/escalations'),
   ]);
 
   _agents = agentsData?.agents || [];
   _alerts = alertsData?.alerts || [];
   _cost   = costData || null;
-  renderCardTips();
+  _esc    = escData || { pending: [], resolved: [] };
+  _overallLatency = agentsData?.avg_latency_ms || 0;
+
+  // Role-driven metric cards (replaces the old fixed cards)
+  populateTeamSelector();
+  renderRoleCards();
+
   const online  = _agents.filter(a => !isOffline(a));
   const offline = _agents.filter(a =>  isOffline(a)).length;
   const ready   = online.filter(a => a.status==='ready').length;
   const busy    = online.filter(a => a.status==='busy').length;
   const errors  = online.filter(a => a.status==='error').length + offline;
   const alerts  = alertsData?.total || 0;
-  const totalTk = _agents.reduce((s,a) => s+(a.totals?.tokens||0), 0);
-
-  document.getElementById('m-online').textContent   = online.length;
-  document.getElementById('m-online-s').textContent = `${ready} ready · ${busy} busy`;
-  document.getElementById('m-offline').textContent  = offline;
-  document.getElementById('m-tokens').textContent   = fmt(totalTk);
-  document.getElementById('m-cost').textContent     = fmtCost(costData?.total_cost_usd);
-  document.getElementById('m-cost-s').textContent   = Object.keys(costData?.by_agent||{}).length+' agents tracked';
-  document.getElementById('m-latency').textContent  = fmtLatency(agentsData?.avg_latency_ms || 0);
-  document.getElementById('m-alerts').textContent   = alerts;
   document.getElementById('nb-alerts').textContent  = alerts;
 
-  const topStatus = errors ? `<span class="pill pill-red">${errors} error</span>` :
-                    busy   ? `<span class="pill pill-amber">${busy} busy</span>` :
-                             `<span class="pill pill-green">all healthy</span>`;
-  document.getElementById('top-status').outerHTML = topStatus;
+  // Header status pill (mutate in place — keep the element/id stable across refreshes)
+  const ts = document.getElementById('top-status');
+  if (ts) {
+    if (errors)      { ts.className = 'pill pill-red';   ts.textContent = `${errors} error`; }
+    else if (busy)   { ts.className = 'pill pill-amber'; ts.textContent = `${busy} busy`; }
+    else             { ts.className = 'pill pill-green'; ts.textContent = 'all healthy'; }
+  }
 
   if (!_agents.length) {
     document.getElementById('agents-table-wrap').innerHTML =
@@ -1652,6 +1723,177 @@ function toggleTheme() {
 }
 try { applyTheme(localStorage.getItem('ct-theme') || 'dark'); } catch (e) {}
 
+// ── Stakeholder roles, login, dynamic cards, charts ─────────────────────────
+let _esc = { pending: [], resolved: [] };
+let _overallLatency = 0;
+let _role = null;
+let _team = '';   // selected department for team-scoped roles
+
+const ROLE_CONFIG = {
+  cto:    { label:'CTO', desc:'Total cost vs budget, fleet status, overall error rate, serious issues.',
+            cards:['cost_vs_budget','agents_running','error_rate','serious_issues'],
+            nav:['charts','cost'], charts:['cost_trend','cost_by_team'] },
+  bu:     { label:'BU Head', desc:'Your team: spend vs budget, work done, error rate, approvals waiting.',
+            cards:['team_cost_vs_budget','work_done','team_error_rate','approvals_waiting'],
+            nav:['charts','cost','escalation'], charts:['cost_trend','cost_by_agent'], teamScoped:true },
+  lead:   { label:'Team Lead', desc:'Each agent up/down, error rate, response speed, open alerts.',
+            cards:['agents_up_down','team_error_rate','response_speed','open_alerts'],
+            nav:['charts','alerts'], charts:['latency_by_agent','alerts_by_type'], teamScoped:true },
+  finops: { label:'FinOps', desc:'Cost by team & agent, % budget used, cost trend.',
+            cards:['top_team_spend','top_agent_spend','pct_budget','total_spend'],
+            nav:['charts','cost'], charts:['cost_by_team','cost_by_agent','cost_trend'] },
+  sec:    { label:'Security / Compliance', desc:'Compliance alerts, high-risk approvals, who approved what.',
+            cards:['compliance_alerts','high_risk_approvals','decisions_logged'],
+            nav:['charts','escalation','alerts','audit'], charts:['approvals_by_decision','alerts_by_severity'] },
+  sre:    { label:'Platform / SRE', desc:'System health, failing agents, active alerts.',
+            cards:['system_health','failing_agents','active_alerts'],
+            nav:['charts','lineage','alerts'], charts:['latency_by_agent','alerts_by_type'] },
+};
+
+function teamAgents() { return _team ? _agents.filter(a => (a.department||'Unknown') === _team) : _agents; }
+function avgErrorRate(list) { const xs=list.map(a=>a.metrics?.error_rate||0); return xs.length?xs.reduce((s,v)=>s+v,0)/xs.length:0; }
+function highAlerts() { return _alerts.filter(a => a.severity === 'high'); }
+function teamAlerts() { const ids=new Set(teamAgents().map(a=>a.agent_id)); return _alerts.filter(a=>ids.has(a.agent_id)); }
+function budgetTone(p) { return p==null?'':p>=100?'tone-bad':p>=80?'tone-warn':'tone-ok'; }
+function budgetBar(p) { if(p==null) return ''; const w=Math.min(100,p), col=p>=100?'var(--red)':p>=80?'var(--amber)':'var(--green)'; return `<div class="budget-bar"><span style="width:${w}%;background:${col}"></span></div>`; }
+
+const CARD_DEFS = {
+  cost_vs_budget: () => { const c=_cost||{}, p=c.total_pct; return {label:'Total cost vs budget', value:`${fmtCost(c.total_cost_usd)} / ${c.total_budget!=null?fmtCost(c.total_budget):'—'}`, tone:budgetTone(p), sub:(p!=null?`${p}% used`:'no budget set')+budgetBar(p)}; },
+  agents_running: () => { const on=_agents.filter(a=>!isOffline(a)); return {label:'Agents running', value:on.length, sub:`${on.filter(a=>a.status==='ready').length} ready · ${on.filter(a=>a.status==='busy').length} busy`}; },
+  error_rate: () => { const r=avgErrorRate(_agents.filter(a=>!isOffline(a))); return {label:'Overall error rate', value:(r*100).toFixed(1)+'%', tone:r>0.15?'tone-bad':r>0.05?'tone-warn':'tone-ok', sub:'avg across agents'}; },
+  serious_issues: () => { const n=highAlerts().length; return {label:'Serious issues', value:n, tone:n?'tone-bad':'tone-ok', sub:'high-severity alerts'}; },
+
+  team_cost_vs_budget: () => { const d=(_cost?.by_department||{})[_team]||{}, p=d.pct; return {label:`Team cost vs budget${_team?` · ${_team}`:''}`, value:`${fmtCost(d.cost||0)} / ${d.budget!=null?fmtCost(d.budget):'—'}`, tone:budgetTone(p), sub:(p!=null?`${p}% used`:'no budget set')+budgetBar(p)}; },
+  work_done: () => ({label:'Work done', value:fmt(teamAgents().reduce((s,a)=>s+(a.executions_count||0),0)), sub:'requests completed'}),
+  team_error_rate: () => { const r=avgErrorRate(teamAgents()); return {label:'Team error rate', value:(r*100).toFixed(1)+'%', tone:r>0.15?'tone-bad':r>0.05?'tone-warn':'tone-ok', sub:_team||'all teams'}; },
+  approvals_waiting: () => { const n=(_esc.pending||[]).length; return {label:'Approvals waiting', value:n, tone:n?'tone-warn':'tone-ok', sub:'pending escalations'}; },
+
+  agents_up_down: () => { const list=teamAgents(), up=list.filter(a=>!isOffline(a)).length; return {label:'Agents up / down', value:`${up} / ${list.length-up}`, tone:(list.length-up)?'tone-warn':'tone-ok', sub:`${list.length} total${_team?` · ${_team}`:''}`}; },
+  response_speed: () => { const list=teamAgents().filter(a=>a.avg_latency_ms); const v=list.length?Math.round(list.reduce((s,a)=>s+a.avg_latency_ms,0)/list.length):0; return {label:'Response speed', value:fmtLatency(v), sub:'avg latency / request'}; },
+  open_alerts: () => { const n=teamAlerts().length; return {label:'Open alerts', value:n, tone:n?'tone-bad':'tone-ok', sub:_team||'all teams'}; },
+
+  top_team_spend: () => { const e=Object.entries(_cost?.by_department||{}).sort((a,b)=>b[1].cost-a[1].cost)[0]; return {label:'Top team spend', value:e?fmtCost(e[1].cost):'$0', sub:e?e[0]:'—'}; },
+  top_agent_spend: () => { const e=Object.entries(_cost?.by_agent||{}).sort((a,b)=>b[1].cost-a[1].cost)[0]; return {label:'Top agent spend', value:e?fmtCost(e[1].cost):'$0', sub:e?(e[1].name||e[0]):'—'}; },
+  pct_budget: () => { const p=_cost?.total_pct; return {label:'% budget used', value:p!=null?p+'%':'—', tone:budgetTone(p), sub:`${fmtCost(_cost?.total_cost_usd)} / ${_cost?.total_budget!=null?fmtCost(_cost.total_budget):'—'}`+budgetBar(p)}; },
+  total_spend: () => ({label:'Total spend', value:fmtCost(_cost?.total_cost_usd), sub:'trend in Charts'}),
+
+  compliance_alerts: () => { const n=highAlerts().length; return {label:'Compliance alerts', value:n, tone:n?'tone-bad':'tone-ok', sub:'high-severity'}; },
+  high_risk_approvals: () => { const n=(_esc.pending||[]).filter(e=>e.urgency==='urgent').length; return {label:'High-risk approvals', value:n, tone:n?'tone-bad':'tone-ok', sub:'urgent & pending'}; },
+  decisions_logged: () => { const r=_esc.resolved||[], last=r[0]; return {label:'Decisions logged', value:r.length, sub:last?`last: ${last.decision||'—'} by ${last.decided_by||'—'}`:'who approved what'}; },
+
+  system_health: () => { const on=_agents.filter(a=>!isOffline(a)).length, t=_agents.length||1, h=Math.round(on/t*100); return {label:'System health', value:h+'%', tone:h>=90?'tone-ok':h>=60?'tone-warn':'tone-bad', sub:`${on}/${_agents.length} agents up`}; },
+  failing_agents: () => { const n=_agents.filter(a=>isOffline(a)||a.status==='error'||a.active_alerts>0).length; return {label:'Failing agents', value:n, tone:n?'tone-bad':'tone-ok', sub:'offline / error / alerting'}; },
+  active_alerts: () => { const n=_alerts.length; return {label:'Active alerts', value:n, tone:n?'tone-bad':'tone-ok', sub:'unresolved'}; },
+};
+
+function renderRoleCards() {
+  const cfg=ROLE_CONFIG[_role], row=document.getElementById('metrics-row');
+  if (!cfg || !row) return;
+  row.innerHTML = cfg.cards.map(type => {
+    const def=CARD_DEFS[type]; if(!def) return '';
+    let c; try { c=def(); } catch(e) { c={label:type,value:'–',sub:''}; }
+    return `<div class="metric-card"><div class="metric-label">${c.label}</div>
+      <div class="metric-value ${c.tone||''}">${c.value}</div>
+      <div class="metric-sub">${c.sub||''}</div></div>`;
+  }).join('');
+}
+
+function populateTeamSelector() {
+  const cfg=ROLE_CONFIG[_role], wrap=document.getElementById('team-selector-wrap'), sel=document.getElementById('team-selector');
+  if (!cfg || !wrap || !sel) return;
+  if (!cfg.teamScoped) { wrap.style.display='none'; return; }
+  wrap.style.display='flex';
+  const depts=[...new Set(_agents.map(a=>a.department||'Unknown'))].sort();
+  if (!_team && depts.length) _team=depts[0];
+  sel.innerHTML=depts.map(d=>`<option ${d===_team?'selected':''}>${d}</option>`).join('');
+}
+function onTeamChange() { _team=document.getElementById('team-selector').value; renderRoleCards(); if (_currentPanel==='charts') renderCharts(); }
+
+// Login / role gating
+function renderLoginRoles() {
+  document.getElementById('login-roles').innerHTML = Object.entries(ROLE_CONFIG).map(([k,c]) =>
+    `<button class="role-card" onclick="login('${k}')"><div class="rc-name">${c.label}</div><div class="rc-desc">${c.desc}</div></button>`).join('');
+}
+function login(role) { _team=''; try{localStorage.setItem('ct-role',role);}catch(e){} applyRole(role); }
+function logout() { _role=null; try{localStorage.removeItem('ct-role');}catch(e){} document.getElementById('login-screen').classList.add('show'); }
+
+function applyRole(role) {
+  const cfg=ROLE_CONFIG[role]; if (!cfg) { logout(); return; }
+  _role=role;
+  document.getElementById('login-screen').classList.remove('show');
+  document.getElementById('top-role').textContent=cfg.label;
+  const allow=new Set(['dashboard', ...cfg.nav]);
+  document.querySelectorAll('.nav-item').forEach(it => {
+    const m=(it.getAttribute('onclick')||'').match(/nav\('(\w+)'/);
+    if (m) it.style.display = allow.has(m[1]) ? '' : 'none';
+  });
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-dashboard').classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const dashNav=[...document.querySelectorAll('.nav-item')].find(n=>/nav\('dashboard'/.test(n.getAttribute('onclick')||''));
+  if (dashNav) dashNav.classList.add('active');
+  _currentPanel='dashboard';
+  document.getElementById('page-title').textContent='Live Dashboard';
+  document.getElementById('page-sub').textContent=cfg.label+' view';
+  loadDashboard();
+}
+
+// ── Charts (canvas, dependency-free) ────────────────────────────────────────
+const CHART_PALETTE=['#00D4FF','#7B6EF6','#00E5A0','#F5A623','#FF4757','#4DA3FF','#b06ef6','#2dd4bf'];
+function chartCard(title,id){ return `<div class="chart-card"><div class="chart-title">${title}</div><canvas id="${id}" height="220"></canvas></div>`; }
+function _noData(ctx){ ctx.fillStyle='#5A6A7A'; ctx.font='12px DM Sans, sans-serif'; ctx.fillText('No data yet',12,24); }
+
+function drawBar(canvas,data){
+  const ctx=canvas.getContext('2d'); const W=canvas.width=canvas.clientWidth||340, H=canvas.height;
+  ctx.clearRect(0,0,W,H); if(!data.length){_noData(ctx);return;}
+  const max=Math.max(...data.map(d=>d.value),1), pad=30, gap=(W-pad*2)/data.length, bw=gap*0.6;
+  data.forEach((d,i)=>{ const x=pad+gap*i+(gap-bw)/2, h=(H-44)*(d.value/max), y=H-22-h;
+    ctx.fillStyle=CHART_PALETTE[i%CHART_PALETTE.length]; ctx.fillRect(x,y,bw,h);
+    ctx.fillStyle='#8a97a5'; ctx.font='10px DM Mono, monospace'; ctx.textAlign='center'; ctx.fillText(String(d.label).slice(0,9),x+bw/2,H-8);
+    ctx.fillStyle='#c9d4df'; ctx.fillText(d.disp!=null?d.disp:d.value,x+bw/2,y-4);
+  });
+}
+function drawPie(canvas,data){
+  const ctx=canvas.getContext('2d'); const W=canvas.width=canvas.clientWidth||340, H=canvas.height;
+  ctx.clearRect(0,0,W,H); const total=data.reduce((s,d)=>s+d.value,0); if(!total){_noData(ctx);return;}
+  const cx=H/1.5, cy=H/2, r=H/2-16; let a=-Math.PI/2;
+  data.forEach((d,i)=>{ const sl=d.value/total*Math.PI*2; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,a,a+sl); ctx.closePath(); ctx.fillStyle=CHART_PALETTE[i%CHART_PALETTE.length]; ctx.fill(); a+=sl; });
+  let ly=18; ctx.font='11px DM Mono, monospace'; ctx.textAlign='left';
+  data.forEach((d,i)=>{ ctx.fillStyle=CHART_PALETTE[i%CHART_PALETTE.length]; ctx.fillRect(cx+r+16,ly-9,10,10); ctx.fillStyle='#c9d4df'; ctx.fillText(`${String(d.label).slice(0,12)} ${Math.round(d.value/total*100)}%`,cx+r+32,ly); ly+=18; });
+}
+function drawLine(canvas,pts){
+  const ctx=canvas.getContext('2d'); const W=canvas.width=canvas.clientWidth||340, H=canvas.height;
+  ctx.clearRect(0,0,W,H); if(pts.length<2){_noData(ctx);return;}
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y), minX=Math.min(...xs), maxX=Math.max(...xs), maxY=Math.max(...ys,1e-9), pad=30;
+  const X=x=>pad+(W-pad-8)*((x-minX)/((maxX-minX)||1)), Y=y=>H-22-(H-44)*(y/maxY);
+  ctx.strokeStyle='#00D4FF'; ctx.lineWidth=2; ctx.beginPath(); pts.forEach((p,i)=>{ const px=X(p.x),py=Y(p.y); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke();
+  ctx.fillStyle='#8a97a5'; ctx.font='10px DM Mono, monospace'; ctx.textAlign='left'; ctx.fillText(fmtCost(maxY),2,12);
+}
+
+const CHART_SPECS = {
+  cost_by_team:    { title:'Cost by team',   kind:'bar', data:()=>Object.entries(_cost?.by_department||{}).map(([k,v])=>({label:k,value:+(v.cost||0).toFixed(6),disp:fmtCost(v.cost)})) },
+  cost_by_agent:   { title:'Cost by agent',  kind:'pie', data:()=>Object.values(_cost?.by_agent||{}).filter(a=>a.cost>0).map(a=>({label:a.name,value:+(a.cost||0).toFixed(6)})) },
+  cost_trend:      { title:'Cost trend (24h)', kind:'line', data:async()=>{ const t=await apiFetch('/api/cost/trend'); return (t?.points||[]).map(p=>({x:p.ts,y:p.cost||0})); } },
+  latency_by_agent:{ title:'Avg latency by agent', kind:'bar', data:()=>teamAgents().filter(a=>a.avg_latency_ms).map(a=>({label:a.name||a.agent_id,value:a.avg_latency_ms,disp:fmtLatency(a.avg_latency_ms)})) },
+  alerts_by_type:  { title:'Alerts by type', kind:'pie', data:()=>{ const m={}; _alerts.forEach(a=>m[a.type]=(m[a.type]||0)+1); return Object.entries(m).map(([k,v])=>({label:k,value:v})); } },
+  alerts_by_severity:{ title:'Alerts by severity', kind:'bar', data:()=>{ const m={high:0,medium:0,low:0}; _alerts.forEach(a=>{m[a.severity]=(m[a.severity]||0)+1;}); return Object.entries(m).map(([k,v])=>({label:k,value:v})); } },
+  approvals_by_decision:{ title:'Approvals by decision', kind:'pie', data:()=>{ const m={}; (_esc.resolved||[]).forEach(e=>{const d=e.decision||'pending'; m[d]=(m[d]||0)+1;}); return Object.entries(m).map(([k,v])=>({label:k,value:v})); } },
+};
+
+async function renderCharts() {
+  const cfg=ROLE_CONFIG[_role], wrap=document.getElementById('charts-wrap'); if(!cfg||!wrap) return;
+  const lbl=document.getElementById('charts-role-label'); if(lbl) lbl.textContent=cfg.label;
+  if(!_cost){ try{ _cost=await apiFetch('/api/cost'); }catch(e){} }
+  if(!_agents.length){ try{ const d=await apiFetch('/api/agents'); _agents=d?.agents||[]; }catch(e){} }
+  if(!_alerts.length){ try{ const d=await apiFetch('/api/alerts?resolved=false'); _alerts=d?.alerts||[]; }catch(e){} }
+  const specs=(cfg.charts||[]).map(k=>CHART_SPECS[k]).filter(Boolean);
+  wrap.innerHTML = specs.length ? specs.map((s,i)=>chartCard(s.title,'chart-'+i)).join('') : '<div class="empty-state"><p>No charts for this role.</p></div>';
+  for(let i=0;i<specs.length;i++){ const s=specs[i], cv=document.getElementById('chart-'+i); if(!cv) continue;
+    let data=[]; try{ data=await (typeof s.data==='function'?s.data():s.data); }catch(e){ data=[]; }
+    if(s.kind==='bar') drawBar(cv,data); else if(s.kind==='pie') drawPie(cv,data); else if(s.kind==='line') drawLine(cv,data);
+  }
+}
+
 function drillAudit(agentId) {
   const navItems = document.querySelectorAll('.nav-item');
   navItems.forEach(n=>n.classList.remove('active'));
@@ -1746,20 +1988,26 @@ function refreshCurrent() { loadPanel(_currentPanel); checkHealth(); }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
+  renderLoginRoles();
   await checkHealth();
-  await loadDashboard();
-  // Populate audit filter
-  const data = await apiFetch('/api/agents');
-  (data?.agents||[]).forEach(a => {
-    const sel = document.getElementById('audit-agent');
-    if (![...sel.options].find(o=>o.value===a.agent_id)) {
-      const o=document.createElement('option'); o.value=a.agent_id; o.textContent=a.name||a.agent_id; sel.appendChild(o);
-    }
-  });
+  // Gate on role selection (login screen) unless one is saved.
+  let saved = null; try { saved = localStorage.getItem('ct-role'); } catch (e) {}
+  if (saved && ROLE_CONFIG[saved]) applyRole(saved);     // applyRole loads the dashboard
+  else document.getElementById('login-screen').classList.add('show');
+  // Populate audit filter (best-effort)
+  try {
+    const data = await apiFetch('/api/agents');
+    (data?.agents||[]).forEach(a => {
+      const sel = document.getElementById('audit-agent');
+      if (sel && ![...sel.options].find(o=>o.value===a.agent_id)) {
+        const o=document.createElement('option'); o.value=a.agent_id; o.textContent=a.name||a.agent_id; sel.appendChild(o);
+      }
+    });
+  } catch (e) {}
 }
 
 init();
-setInterval(() => { checkHealth(); if(_currentPanel==='dashboard') loadDashboard(); }, 15000);
+setInterval(() => { checkHealth(); if(_role && _currentPanel==='dashboard') loadDashboard(); }, 15000);
 </script>
 </body>
 </html>

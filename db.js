@@ -82,6 +82,14 @@ function executionTotals(maxAgeMs = DAY_MS, nowMs) {
   } catch { return []; }
 }
 
+/** Org-wide cost/token trend across all agents (summed per snapshot time). */
+function costTrend(fromTs = 0) {
+  if (!db) return [];
+  try {
+    return db.all('SELECT ts, SUM(tokens) AS tokens, SUM(cost) AS cost FROM agent_snapshots WHERE ts >= ? GROUP BY ts ORDER BY ts', [fromTs]);
+  } catch { return []; }
+}
+
 /** Per-agent cumulative snapshot history (for charts/export). */
 function agentHistory(agentId, fromTs = 0) {
   if (!db) return [];
@@ -91,6 +99,6 @@ function agentHistory(agentId, fromTs = 0) {
 }
 
 module.exports = {
-  init, recordExecution, snapshotAgents, prune, recentExecutions, executionTotals, agentHistory,
+  init, recordExecution, snapshotAgents, prune, recentExecutions, executionTotals, costTrend, agentHistory,
   get enabled() { return !!db; },
 };

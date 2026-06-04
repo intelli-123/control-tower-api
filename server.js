@@ -41,7 +41,7 @@ const store = {
 };
 
 // ─── Persistence (SQLite/wasm, 1-day retention) ──────────────────────────────
-dbStore.init();
+dbStore.init(process.env.CT_DB_PATH);   // CT_DB_PATH overrides the default DB file
 store.carryover = {};   // per-agent totals rehydrated from persisted executions
 try {
   const rows = dbStore.recentExecutions();   // rehydrate last 24h on startup
@@ -734,6 +734,14 @@ app.get('/api/lineage', (req, res) => {
 
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────
 const path = require('path');
+// Don't let browsers cache the dashboard HTML — always serve the latest build,
+// so UI fixes show up on a normal refresh (no hard-refresh needed).
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path.endsWith('.html')) {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

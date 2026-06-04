@@ -46,6 +46,9 @@ body.light {
 body.light::before { background-image:
   linear-gradient(rgba(0,0,0,0.025) 1px, transparent 1px),
   linear-gradient(90deg, rgba(0,0,0,0.025) 1px, transparent 1px); }
+body.light .nav-item:hover,
+body.light .btn:hover { background: rgba(0,0,0,0.05); }
+body.light .btn:hover { border-color: rgba(0,0,0,0.2); }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -217,7 +220,7 @@ nav { padding: 12px 0; flex: 1; }
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
 .topbar {
-  background: rgba(13,17,23,0.8);
+  background: var(--bg2);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
   padding: 14px 28px;
@@ -323,6 +326,12 @@ nav { padding: 12px 0; flex: 1; }
 /* Filter bar (card detail) */
 .cd-filter { font-size: 12px; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border2, #2d3a48);
   background: var(--bg, #0d1218); color: var(--text, #e6edf3); }
+
+/* Help modal */
+.help-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.help-item:last-child { border-bottom: none; }
+.help-h { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+.help-item code { font-family: var(--font-mono); background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 /* Print → Save as PDF: show only the open modal, drop the app chrome */
 @media print {
@@ -726,13 +735,10 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         <span class="pill pill-blue" id="top-agents">– agents</span>
         <span class="pill" id="top-status">–</span>
         <button class="btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark theme">🌙 Dark</button>
+        <button class="btn" onclick="openHelp()" title="What do these sections mean?">? Help</button>
         <button class="btn" onclick="refreshCurrent()">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           Refresh
-        </button>
-        <button class="btn btn-primary" onclick="nav('trigger', document.querySelectorAll('.nav-item')[7])">
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Trigger
         </button>
       </div>
     </div>
@@ -862,6 +868,48 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /shell -->
+
+<!-- Help modal -->
+<div class="modal-overlay" id="help-modal" onclick="if(event.target===this)closeHelp()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">What am I looking at? — sections & how they're calculated</div>
+      <button class="modal-close" onclick="closeHelp()">×</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.6">
+      <div class="help-item">
+        <div class="help-h">🗼 Live Dashboard</div>
+        <div><b>What:</b> real-time snapshot of every agent — online/offline counts, tokens, cost, average latency and active alerts.</div>
+        <div><b>How:</b> built from agent heartbeats. Hover a card for the per-agent breakdown; click it to expand with filters. An agent counts as <i>offline</i> if no heartbeat for ~45s.</div>
+      </div>
+      <div class="help-item">
+        <div class="help-h">🕸 Lineage graph</div>
+        <div><b>What:</b> how agents relate — each agent, the tools it exposes, and <b>agent → agent interdependencies</b>.</div>
+        <div><b>How:</b> interdependency arrows are derived from <i>who triggered whom</i> (trigger runs) plus any declared <code>depends_on</code>. Tools come from each agent's reported tool list / an MCP's <code>tools/list</code>.</div>
+      </div>
+      <div class="help-item">
+        <div class="help-h">⚠ Alerts</div>
+        <div><b>What:</b> automatic anomaly detections per agent.</div>
+        <div><b>How:</b> <b>Token spike</b> — window tokens &gt; 2.5× the agent's rolling baseline (EMA). <b>Tool loop</b> — same tool called ≥5× in one report window. <b>High error rate</b> — error_rate &gt; 15%. <b>Silent failure</b> — no heartbeat for &gt;60s.</div>
+      </div>
+      <div class="help-item">
+        <div class="help-h">🙋 Escalations</div>
+        <div><b>What:</b> human-in-the-loop approvals. An agent pauses and asks a person to <i>approve / reject / hold</i> a decision.</div>
+        <div><b>How:</b> the agent raises an escalation and polls for the outcome; you resolve it here and the agent continues with your decision.</div>
+      </div>
+      <div class="help-item">
+        <div class="help-h">📜 Audit log</div>
+        <div><b>What:</b> a time-ordered trace of everything an agent reported.</div>
+        <div><b>How:</b> each event (task start/complete, tool calls, LLM responses, triggers, escalations) is appended with its token count as it arrives.</div>
+      </div>
+      <div class="help-item">
+        <div class="help-h">💲 Cost attribution</div>
+        <div><b>What:</b> spend per agent and per department.</div>
+        <div><b>How:</b> for every LLM response, cost = (tokens_in ÷ 1000 × input_rate) + (tokens_out ÷ 1000 × output_rate). Rates are per-model from <code>cost-config.json</code>; tokens and cost accumulate across heartbeats.</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Card detail modal -->
 <div class="modal-overlay" id="card-modal" onclick="if(event.target===this)closeCardDetail()">
@@ -1505,6 +1553,10 @@ function openCardDetail(type) {
   renderCardDetail();
 }
 function closeCardDetail() { document.getElementById('card-modal').classList.remove('open'); document.body.classList.remove('modal-open'); _cdType = null; }
+
+// Help modal
+function openHelp()  { document.getElementById('help-modal').classList.add('open'); document.body.classList.add('modal-open'); }
+function closeHelp() { document.getElementById('help-modal').classList.remove('open'); document.body.classList.remove('modal-open'); }
 
 // Export the current card's data as CSV (opens in Excel).
 function exportCard() {

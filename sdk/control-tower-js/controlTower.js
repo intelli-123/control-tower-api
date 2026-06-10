@@ -33,6 +33,20 @@
 
 import https from 'https';
 import http from 'http';
+import { createRequire } from 'module';
+import { pathToFileURL } from 'url';
+import { join } from 'path';
+
+// Load an optional integration, preferring the HOST app's node_modules (this
+// package may be symlinked via `file:` installs, where package-relative
+// resolution can't see the app's deps), then falling back to package-relative.
+async function loadOptional(spec) {
+  try {
+    const req = createRequire(join(process.cwd(), 'noop.js'));
+    return await import(pathToFileURL(req.resolve(spec)).href);
+  } catch { /* try package-relative next */ }
+  try { return await import(spec); } catch { return null; }
+}
 
 class ControlTower {
   /**
@@ -233,9 +247,9 @@ class ControlTower {
    */
   async asLangChainCallback() {
     const ct = this;
-    let BaseCallbackHandler;
-    try { ({ BaseCallbackHandler } = await import('@langchain/core/callbacks/base')); }
-    catch { console.warn('[ControlTower] @langchain/core not installed — callback unavailable'); return undefined; }
+    const mod = await loadOptional('@langchain/core/callbacks/base');
+    const BaseCallbackHandler = mod && mod.BaseCallbackHandler;
+    if (!BaseCallbackHandler) { console.warn('[ControlTower] @langchain/core not found — callback unavailable'); return undefined; }
     // Optional dep → async. Use: callbacks: [await ct.asLangChainCallback()]
     return BaseCallbackHandler.fromMethods({
       handleLLMEnd(output) {

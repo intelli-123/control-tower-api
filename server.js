@@ -444,13 +444,26 @@ app.post('/api/heartbeat', (req, res) => {
  */
 app.get('/api/agents', (req, res) => {
   markOfflineAgents();
+  const meta   = dbStore.allAgentMeta();   // admin overrides
+  const buMap  = dbStore.allAgentBUs();    // agent_id -> [bu_id]
+  const buName = {}; dbStore.listBUs().forEach(b => buName[b.bu_id] = b.name);
   const agents = Object.values(store.agents).map(a => {
     const execs = store.executions.filter(e => e.agent_id === a.agent_id);
     const avgLat = execs.length
       ? Math.round(execs.reduce((s, e) => s + e.latency_ms, 0) / execs.length)
       : 0;
+    const o = meta[a.agent_id] || {};   // admin overrides win for display
+    const bus = buMap[a.agent_id] || [];
     return {
       ...a,
+      name:        o.name       || a.name,
+      framework:   o.framework  || a.framework,
+      model:       o.model      || a.model,
+      department:  o.department || a.department,
+      owner:       o.owner      || a.owner || null,
+      reported:    { name: a.name, framework: a.framework, model: a.model, department: a.department }, // raw heartbeat values
+      business_units: bus,
+      bu_names:    bus.map(id => buName[id] || id),
       seconds_since_heartbeat: a.last_heartbeat
         ? Math.floor((Date.now() - new Date(a.last_heartbeat).getTime()) / 1000)
         : null,
@@ -879,6 +892,13 @@ app.delete('/api/admin/users/:id', (req, res) => {
     return res.status(400).json({ error: 'cannot remove the last admin' });
   }
   dbStore.deleteUser(req.params.id);
+  res.json({ ok: true });
+});
+
+// Admin override of an agent's display metadata (wins over heartbeat in /api/agents)
+app.post('/api/admin/agents/:id/meta', (req, res) => {
+  const { name, framework, model, department, owner, notes } = req.body || {};
+  dbStore.setAgentMeta(req.params.id, { name, framework, model, department, owner, notes });
   res.json({ ok: true });
 });
 

@@ -1256,6 +1256,32 @@ async function adminDeleteUser(id, uname) {
   else alert((r && r.error) ? r.error : 'failed to remove');
 }
 
+// Agents — detected from heartbeats; admin can override display metadata.
+function escAttr(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function amId(id, k) { return 'am_' + String(id).replace(/[^a-zA-Z0-9]/g,'_') + '_' + k; }
+async function renderAdminAgents() {
+  const data = await apiFetch('/api/agents');
+  const agents = data?.agents || [];
+  const wrap = document.getElementById('admin-agents');
+  if (!agents.length) { wrap.innerHTML = '<div class="empty-state"><p>No agents detected yet. Install the SDK in an agent and run it — it auto-registers here.</p></div>'; return; }
+  const fields = ['name','framework','model','department','owner'];
+  const rows = agents.map(a => `<tr>
+      <td style="font-family:var(--font-mono);font-size:11px;min-width:130px">${a.agent_id}
+        <div style="color:var(--dim);margin-top:2px">${a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat + 's ago' : '–'}</div></td>
+      <td>${statusHTML(effectiveStatus(a))}</td>
+      ${fields.map(k => `<td><input class="cd-filter" id="${amId(a.agent_id,k)}" value="${escAttr(a[k]||'')}" style="width:110px"></td>`).join('')}
+      <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="adminSaveAgentMeta('${String(a.agent_id).replace(/['"\\]/g,'')}')">Save</button></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table><thead><tr><th>Agent (detected)</th><th>Status</th><th>Display name</th><th>Framework</th><th>LLM / model</th><th>Department</th><th>Owner</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div id="admin-agents-msg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>`;
+}
+async function adminSaveAgentMeta(id) {
+  const g = k => { const el = document.getElementById(amId(id, k)); return el ? el.value.trim() : ''; };
+  const body = { name: g('name'), framework: g('framework'), model: g('model'), department: g('department'), owner: g('owner') };
+  const r = await apiFetch('/api/admin/agents/' + encodeURIComponent(id) + '/meta', 'POST', body);
+  const msg = document.getElementById('admin-agents-msg'); if (msg) msg.textContent = (r && r.ok) ? ('Saved ' + id) : 'failed to save';
+}
+
 // ── Health ────────────────────────────────────────────────────────────────────
 async function checkHealth() {
   const h = await apiFetch('/api/health');

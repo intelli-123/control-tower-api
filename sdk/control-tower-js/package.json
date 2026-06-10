@@ -1,0 +1,19 @@
+{
+  "name": "control-tower-sdk",
+  "version": "1.0.0",
+  "description": "Drop-in SDK for Node.js agents to report status, tokens, cost and tool calls to the Agent Control Tower.",
+  "type": "module",
+  "main": "./controlTower.js",
+  "exports": {
+    ".": "./controlTower.js",
+    "./tokenCounter": "./tokenCounter.js"
+  },
+  "files": ["controlTower.js", "tokenCounter.js", "README.md"],
+  "engines": { "node": ">=18" },
+  "keywords": ["agent", "observability", "control-tower", "llm", "monitoring"],
+  "license": "MIT",
+  "optionalDependencies": {
+    "@langchain/core": "^1.0.0",
+    "llama3-tokenizer-js": "^1.2.0"
+  }
+}

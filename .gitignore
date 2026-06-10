@@ -6,3 +6,7 @@ control-tower.db-*
 *.log
 npm-debug.log*
 .DS_Store
+__pycache__/
+*.tgz
+
+improvements.txt

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "control-tower-sdk"
+version = "1.0.0"
+description = "Drop-in SDK for Python agents to report status, tokens, cost and tool calls to the Agent Control Tower."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["agent", "observability", "control-tower", "llm", "monitoring"]
+dependencies = []   # zero required deps (urllib stdlib fallback for HTTP)
+
+[project.optional-dependencies]
+httpx = ["httpx>=0.23"]
+langchain = ["langchain-core>=0.1"]
+
+[tool.setuptools]
+packages = ["control_tower"]

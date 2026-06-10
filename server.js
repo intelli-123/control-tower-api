@@ -855,6 +855,33 @@ app.get('/api/lineage', (req, res) => {
   });
 });
 
+// ─── Admin: stakeholders / users (requireAdmin via the auth gate) ────────────
+app.get('/api/admin/users', (req, res) => {
+  res.json({ users: dbStore.listUsers() });
+});
+
+app.post('/api/admin/users', (req, res) => {
+  const { username, password, role, display_name } = req.body || {};
+  const uname = (username || '').trim();
+  if (!uname || !password || !role) return res.status(400).json({ error: 'username, password and role are required' });
+  if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: `invalid role (allowed: ${VALID_ROLES.join(', ')})` });
+  if (dbStore.getUser(uname)) return res.status(409).json({ error: 'username already exists' });
+  const { hash, salt } = hashPassword(password);
+  dbStore.upsertUser({ id: crypto.randomUUID(), username: uname, pass_hash: hash, pass_salt: salt, role, display_name: display_name || uname });
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/api/admin/users/:id', (req, res) => {
+  const users = dbStore.listUsers();
+  const target = users.find(u => u.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'user not found' });
+  if (target.role === 'admin' && users.filter(u => u.role === 'admin').length <= 1) {
+    return res.status(400).json({ error: 'cannot remove the last admin' });
+  }
+  dbStore.deleteUser(req.params.id);
+  res.json({ ok: true });
+});
+
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────
 const path = require('path');
 // Don't let browsers cache the dashboard HTML — always serve the latest build,

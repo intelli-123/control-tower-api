@@ -814,6 +814,12 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         Audit log
       </div>
 
+      <div class="nav-section" style="margin-top:8px">Admin</div>
+      <div class="nav-item" onclick="nav('admin',this)">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2l7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V6z"/></svg>
+        Admin
+      </div>
+
     </nav>
 
     <div class="sidebar-footer">
@@ -972,6 +978,20 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         <div class="table-card" id="runs-wrap"><div class="loading"><div class="spin"></div></div></div>
       </div>
 
+      <!-- ADMIN -->
+      <div class="panel" id="panel-admin">
+        <div class="section-head"><div class="section-title">Stakeholders</div>
+          <span class="pill pill-blue" style="font-size:10px">admin only</span></div>
+        <div class="table-card" id="admin-users" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
+
+        <div class="section-head" style="margin-top:20px"><div class="section-title">Agents</div>
+          <span class="pill pill-blue" style="font-size:10px">detected from heartbeats</span></div>
+        <div class="table-card" id="admin-agents" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
+
+        <div class="section-head" style="margin-top:20px"><div class="section-title">Business units &amp; mapping</div></div>
+        <div class="table-card" id="admin-bus" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
+      </div>
+
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /shell -->
@@ -1076,6 +1096,7 @@ const TITLES = {
   cost:       ['Cost Attribution',   'spend breakdown'],
   audit:      ['Audit Log',          'full decision trace'],
   trigger:    ['Trigger Agent',      'fire an agent run'],
+  admin:      ['Administration',     'stakeholders · agents · business units'],
 };
 
 let _agents = [];
@@ -1180,6 +1201,59 @@ function loadPanel(name) {
   else if (name === 'cost')       loadCost();
   else if (name === 'audit')      loadAudit();
   else if (name === 'trigger')    loadTriggerPanel();
+  else if (name === 'admin')      loadAdmin();
+}
+
+// ── Admin panel ───────────────────────────────────────────────────────────────
+async function loadAdmin() {
+  await renderAdminUsers();
+  if (typeof renderAdminAgents === 'function') renderAdminAgents();   // Phase 3
+  else document.getElementById('admin-agents').innerHTML = '<div class="empty-state"><p>Agent metadata editor — next.</p></div>';
+  if (typeof renderAdminBUs === 'function') renderAdminBUs();         // Phase 4
+  else document.getElementById('admin-bus').innerHTML = '<div class="empty-state"><p>Business-unit mapping — next.</p></div>';
+}
+
+async function renderAdminUsers() {
+  const data = await apiFetch('/api/admin/users');
+  const users = data?.users || [];
+  const roleOpts = ['sre','cto','bu','lead','finops','sec','admin']
+    .map(r => `<option value="${r}">${(ROLE_CONFIG[r]?.label) || r}</option>`).join('');
+  const rows = users.map(u => `<tr>
+      <td>${u.display_name || u.username}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${u.username}</td>
+      <td><span class="pill pill-blue" style="font-size:10px">${(ROLE_CONFIG[u.role]?.label) || u.role}</span></td>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--dim)">${u.last_login ? ago(u.last_login) : 'never'}</td>
+      <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="adminDeleteUser('${u.id}','${(u.username||'').replace(/['"\\]/g,'')}')">Remove</button></td>
+    </tr>`).join('');
+  document.getElementById('admin-users').innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <input class="cd-filter" id="nu-username" placeholder="username" style="width:130px">
+      <input class="cd-filter" id="nu-display" placeholder="display name" style="width:150px">
+      <input class="cd-filter" id="nu-password" type="password" placeholder="password" style="width:140px">
+      <select class="cd-filter" id="nu-role">${roleOpts}</select>
+      <button class="btn btn-primary" onclick="adminAddUser()" style="font-size:12px">+ Add stakeholder</button>
+      <span id="admin-users-msg" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    ${users.length
+      ? `<table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Last login</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<div class="empty-state"><p>No stakeholders yet — add one above.</p></div>'}`;
+}
+
+async function adminAddUser() {
+  const msg = document.getElementById('admin-users-msg');
+  const username = val('nu-username'), display = val('nu-display'), password = val('nu-password'), role = val('nu-role');
+  if (!username || !password) { msg.textContent = 'username & password required'; return; }
+  msg.textContent = 'adding…';
+  const r = await apiFetch('/api/admin/users', 'POST', { username, password, role, display_name: display });
+  if (r && r.ok) renderAdminUsers();
+  else msg.textContent = (r && r.error) ? r.error : 'failed';
+}
+
+async function adminDeleteUser(id, uname) {
+  if (!confirm('Remove stakeholder "' + uname + '"?')) return;
+  const r = await apiFetch('/api/admin/users/' + id, 'DELETE');
+  if (r && r.ok) renderAdminUsers();
+  else alert((r && r.error) ? r.error : 'failed to remove');
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────

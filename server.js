@@ -767,6 +767,16 @@ app.get('/api/cost', (req, res) => {
     d.pct    = pct(d.cost, d.budget);
   }
 
+  // Cost by Business Unit (admin-defined BUs + agent↔BU mapping)
+  const buMap = dbStore.allAgentBUs();             // agent_id -> [bu_id]
+  const byBu  = {};
+  dbStore.listBUs().forEach(b => byBu[b.bu_id] = { name: b.name, cost: 0, tokens: 0, budget: b.budget != null ? b.budget : null });
+  for (const agent of Object.values(store.agents)) {
+    const cost = agent.totals?.cost || 0, tokens = agent.totals?.tokens || 0;
+    (buMap[agent.agent_id] || []).forEach(bid => { if (byBu[bid]) { byBu[bid].cost += cost; byBu[bid].tokens += tokens; } });
+  }
+  Object.values(byBu).forEach(d => { d.cost = parseFloat(d.cost.toFixed(4)); d.pct = pct(d.cost, d.budget); });
+
   const totalCost   = Object.values(byAgent).reduce((s, a) => s + a.cost, 0);
   const totalTokens = Object.values(byAgent).reduce((s, a) => s + a.tokens, 0);
 
@@ -778,6 +788,7 @@ app.get('/api/cost', (req, res) => {
     budgets:           BUDGETS,
     by_agent:          byAgent,
     by_department:     byDept,
+    by_bu:             byBu,
     timestamp:         now(),
   });
 });
@@ -901,6 +912,24 @@ app.post('/api/admin/agents/:id/meta', (req, res) => {
   dbStore.setAgentMeta(req.params.id, { name, framework, model, department, owner, notes });
   res.json({ ok: true });
 });
+
+// ─── Admin: business units + agent↔BU mapping ────────────────────────────────
+app.get('/api/admin/bus', (req, res) => res.json({ bus: dbStore.listBUs(), map: dbStore.allAgentBUs() }));
+app.post('/api/admin/bus', (req, res) => {
+  const { name, budget, owner } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
+  dbStore.upsertBU({ bu_id: crypto.randomUUID(), name: String(name).trim(), budget: (budget != null && budget !== '') ? Number(budget) : null, owner: owner || null });
+  res.status(201).json({ ok: true });
+});
+app.delete('/api/admin/bus/:id', (req, res) => { dbStore.deleteBU(req.params.id); res.json({ ok: true }); });
+app.post('/api/admin/agents/:id/bus', (req, res) => {
+  const { bu_ids } = req.body || {};
+  dbStore.setAgentBUs(req.params.id, Array.isArray(bu_ids) ? bu_ids : []);
+  res.json({ ok: true });
+});
+
+// Any authenticated role can read the BU list (dashboard team selector).
+app.get('/api/bus', (req, res) => res.json({ bus: dbStore.listBUs() }));
 
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────
 const path = require('path');

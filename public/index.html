@@ -748,19 +748,18 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="login-logo">🗼</div>
       <div>
         <div class="login-title">Agent Control Tower</div>
-        <div class="login-sub">Select your role and sign in</div>
+        <div class="login-sub">Sign in to your account</div>
       </div>
     </div>
-    <div class="login-section-label">1 · Choose your view</div>
-    <div class="login-roles" id="login-roles"><!-- filled by JS --></div>
-    <div class="login-section-label">2 · Enter password</div>
-    <div class="login-auth">
+    <div class="login-auth" style="flex-direction:column;gap:10px">
+      <input type="text" id="login-username" class="login-input" placeholder="Username"
+             onkeydown="if(event.key==='Enter')doLogin()" autocomplete="username" autofocus />
       <input type="password" id="login-password" class="login-input" placeholder="Password"
              onkeydown="if(event.key==='Enter')doLogin()" autocomplete="current-password" />
-      <button class="login-btn" id="login-btn" onclick="doLogin()">Sign in →</button>
+      <button class="login-btn" id="login-btn" onclick="doLogin()" style="width:100%">Sign in →</button>
     </div>
     <div class="login-error" id="login-error"></div>
-    <div class="login-foot">Same password for all stakeholders · switch anytime via Logout</div>
+    <div class="login-foot">Your view is determined by your account role · contact your admin for access</div>
   </div>
 </div>
 
@@ -1084,11 +1083,21 @@ let _currentPanel = 'dashboard';
 
 async function apiFetch(path, method='GET', body=null) {
   try {
-    const opts = { method, headers: {'Content-Type':'application/json'} };
+    const headers = {'Content-Type':'application/json'};
+    let token = null; try { token = localStorage.getItem('ct-token'); } catch (e) {}
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const opts = { method, headers };
     if (body) opts.body = JSON.stringify(body);
     const r = await fetch(API + path, opts);
+    // Session expired/invalid → bounce to login (except the login call itself).
+    if (r.status === 401 && path !== '/api/login') { onSessionExpired(); return null; }
     return await r.json();
   } catch { return null; }
+}
+
+function onSessionExpired() {
+  try { localStorage.removeItem('ct-token'); localStorage.removeItem('ct-role'); localStorage.removeItem('ct-user'); } catch (e) {}
+  const ls = document.getElementById('login-screen'); if (ls) ls.classList.add('show');
 }
 
 function fmt(n) {
@@ -1773,6 +1782,10 @@ let _role = null;
 let _team = '';   // selected department for team-scoped roles
 
 const ROLE_CONFIG = {
+  admin:  { icon:'👑', label:'Admin', desc:'Manage stakeholders, agent metadata, and business-unit mapping.',
+            cards:['agents_running','cost_vs_budget','active_alerts','approvals_waiting'],
+            nav:['charts','lineage','alerts','escalation','cost','audit','admin'],
+            charts:['cost_by_team','cost_trend'] },
   cto:    { icon:'🏢', label:'CTO', desc:'Total cost vs budget, fleet status, overall error rate, serious issues.',
             cards:['cost_vs_budget','agents_running','error_rate','serious_issues'],
             nav:['charts','cost'], charts:['cost_trend','cost_by_team'] },
@@ -1852,41 +1865,32 @@ function populateTeamSelector() {
 }
 function onTeamChange() { _team=document.getElementById('team-selector').value; renderRoleCards(); if (_currentPanel==='charts') renderCharts(); }
 
-// Login / role gating (password-protected)
-let _selectedRole = null;
-function renderLoginRoles() {
-  document.getElementById('login-roles').innerHTML = Object.entries(ROLE_CONFIG).map(([k,c]) =>
-    `<div class="role-card" data-role="${k}" onclick="selectRole('${k}')">
-       <div class="rc-icon">${c.icon||'•'}</div>
-       <div><div class="rc-name">${c.label}</div><div class="rc-desc">${c.desc}</div></div>
-     </div>`).join('');
-}
-function selectRole(role) {
-  _selectedRole = role;
-  document.querySelectorAll('#login-roles .role-card').forEach(el =>
-    el.classList.toggle('selected', el.getAttribute('data-role') === role));
-  const err = document.getElementById('login-error'); if (err) err.textContent = '';
-}
+// Login / per-user auth
 async function doLogin() {
   const err = document.getElementById('login-error');
-  if (!_selectedRole) { err.textContent = 'Please select a role first.'; return; }
+  const username = (document.getElementById('login-username').value || '').trim();
   const pw = (document.getElementById('login-password').value || '');
-  if (!pw) { err.textContent = 'Enter the password.'; return; }
+  if (!username || !pw) { err.textContent = 'Enter username and password.'; return; }
   err.textContent = 'Signing in…';
-  const r = await apiFetch('/api/login', 'POST', { password: pw });
+  const r = await apiFetch('/api/login', 'POST', { username, password: pw });
   if (r && r.ok) {
-    try { localStorage.setItem('ct-role', _selectedRole); localStorage.setItem('ct-auth', r.token || '1'); } catch (e) {}
+    try {
+      localStorage.setItem('ct-token', r.token);
+      localStorage.setItem('ct-role', r.role);
+      localStorage.setItem('ct-user', r.displayName || username);
+    } catch (e) {}
     err.textContent = '';
     document.getElementById('login-password').value = '';
     _team = '';
-    applyRole(_selectedRole);
+    applyRole(r.role);
   } else {
-    err.textContent = (r && r.error) ? r.error : 'Invalid password.';
+    err.textContent = (r && r.error) ? r.error : 'Invalid username or password.';
   }
 }
 function logout() {
-  _role = null; _selectedRole = null;
-  try { localStorage.removeItem('ct-role'); localStorage.removeItem('ct-auth'); } catch (e) {}
+  _role = null;
+  apiFetch('/api/logout', 'POST');   // best-effort server-side invalidation
+  try { localStorage.removeItem('ct-token'); localStorage.removeItem('ct-role'); localStorage.removeItem('ct-user'); } catch (e) {}
   const pw = document.getElementById('login-password'); if (pw) pw.value = '';
   document.getElementById('login-screen').classList.add('show');
 }
@@ -2062,13 +2066,18 @@ function refreshCurrent() { loadPanel(_currentPanel); checkHealth(); }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  renderLoginRoles();
   await checkHealth();
-  // Gate on auth (password) + saved role; otherwise show the login screen.
-  let saved = null, auth = null;
-  try { saved = localStorage.getItem('ct-role'); auth = localStorage.getItem('ct-auth'); } catch (e) {}
-  if (saved && auth && ROLE_CONFIG[saved]) applyRole(saved);   // applyRole loads the dashboard
-  else document.getElementById('login-screen').classList.add('show');
+  // Validate the saved session token with the server; show login if missing/expired.
+  let token = null; try { token = localStorage.getItem('ct-token'); } catch (e) {}
+  let me = null;
+  if (token) me = await apiFetch('/api/me');   // 401 → onSessionExpired() shows login
+  if (me && me.role && ROLE_CONFIG[me.role]) {
+    try { localStorage.setItem('ct-role', me.role); localStorage.setItem('ct-user', me.displayName || me.username); } catch (e) {}
+    applyRole(me.role);
+  } else {
+    document.getElementById('login-screen').classList.add('show');
+    return;   // not authed — skip authed data calls below
+  }
   // Populate audit filter (best-effort)
   try {
     const data = await apiFetch('/api/agents');

@@ -76,8 +76,61 @@ try {
 }
 const pct = (spent, budget) => (budget > 0 ? +((spent / budget) * 100).toFixed(1) : null);
 
-// Shared dashboard password (same for all stakeholders). Override via env CT_PASSWORD.
-const AUTH_PASSWORD = process.env.CT_PASSWORD || 'control-tower';
+// ─── Auth: per-user accounts (scrypt, no external deps) ──────────────────────
+const crypto = require('crypto');
+const VALID_ROLES = ['admin', 'cto', 'bu', 'lead', 'finops', 'sec', 'sre'];
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
+  return { hash, salt };
+}
+function verifyPassword(password, hash, salt) {
+  try {
+    const h = crypto.scryptSync(String(password), salt, 64).toString('hex');
+    return h.length === (hash || '').length &&
+           crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(hash, 'hex'));
+  } catch { return false; }
+}
+
+// In-memory session tokens (cleared on restart → users re-login).
+const SESSIONS = new Map();   // token -> { username, role, displayName, exp }
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+function issueToken(user) {
+  const token = crypto.randomUUID();
+  SESSIONS.set(token, { username: user.username, role: user.role, displayName: user.display_name || user.username, exp: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+function sessionFor(req) {
+  const h = req.headers.authorization || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  if (!token) return null;
+  const s = SESSIONS.get(token);
+  if (!s) return null;
+  if (s.exp < Date.now()) { SESSIONS.delete(token); return null; }
+  return { token, ...s };
+}
+function requireAuth(req, res, next) {
+  const s = sessionFor(req);
+  if (!s) return res.status(401).json({ error: 'Unauthorized' });
+  req.user = s; next();
+}
+function requireAdmin(req, res, next) {
+  const s = sessionFor(req);
+  if (!s) return res.status(401).json({ error: 'Unauthorized' });
+  if (s.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  req.user = s; next();
+}
+
+// Seed a default admin on first run (password from CT_ADMIN_PASSWORD, default 'admin').
+function seedAdmin() {
+  if (!dbStore.enabled) { console.warn('[auth] DB disabled — user accounts unavailable'); return; }
+  if (dbStore.countUsers() > 0) return;
+  const pw = process.env.CT_ADMIN_PASSWORD || 'admin';
+  const { hash, salt } = hashPassword(pw);
+  dbStore.upsertUser({ id: crypto.randomUUID(), username: 'admin', pass_hash: hash, pass_salt: salt, role: 'admin', display_name: 'Administrator' });
+  console.log(`[auth] Seeded default admin user "admin" (password: ${process.env.CT_ADMIN_PASSWORD ? 'from CT_ADMIN_PASSWORD' : "'admin' — change it!"})`);
+}
+seedAdmin();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function now() { return new Date().toISOString(); }
@@ -187,6 +240,22 @@ function markOfflineAgents() {
 // Run offline check every 30 seconds
 setInterval(markOfflineAgents, 30_000);
 
+// ─── Auth gate ────────────────────────────────────────────────────────────────
+// Dashboard read/admin endpoints require a session; agent-ingestion endpoints
+// (what the SDKs call) stay open so installing an SDK needs no credentials.
+app.use((req, res, next) => {
+  const p = req.path, m = req.method;
+  if (!p.startsWith('/api/')) return next();                                   // static / dashboard html
+  if (p === '/api/login' || p === '/api/logout' || p === '/api/health') return next();
+  if (p === '/api/heartbeat'   && m === 'POST') return next();                 // agent heartbeat
+  if (p === '/api/trigger'     && m === 'POST') return next();                 // agent/SDK trigger
+  if (p === '/api/escalation'  && m === 'POST') return next();                 // agent raises escalation
+  if (/^\/api\/escalations\/[^/]+$/.test(p) && m === 'GET') return next();     // agent polls decision
+  if (/^\/api\/runs\/[^/]+$/.test(p) && m === 'PATCH') return next();          // agent updates a run
+  if (p.startsWith('/api/admin/')) return requireAdmin(req, res, next);        // admin only
+  return requireAuth(req, res, next);                                          // everything else
+});
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /**
@@ -202,16 +271,30 @@ app.get('/api/health', (req, res) => {
 });
 
 /**
- * POST /api/login  { password }
- * Shared password for all stakeholders (CT_PASSWORD env, default 'control-tower').
- * Returns a session token on success; 401 otherwise.
+ * POST /api/login  { username, password }
+ * Per-user accounts. Returns { ok, token, role, displayName } on success.
  */
 app.post('/api/login', (req, res) => {
-  const { password } = req.body || {};
-  if (password && password === AUTH_PASSWORD) {
-    return res.json({ ok: true, token: uuidv4() });
+  const { username, password } = req.body || {};
+  const u = username && dbStore.getUser(String(username).trim());
+  if (u && verifyPassword(password, u.pass_hash, u.pass_salt)) {
+    const token = issueToken(u);
+    dbStore.setUserLastLogin(u.id, now());
+    return res.json({ ok: true, token, role: u.role, displayName: u.display_name || u.username });
   }
-  return res.status(401).json({ ok: false, error: 'Invalid password' });
+  return res.status(401).json({ ok: false, error: 'Invalid username or password' });
+});
+
+/** POST /api/logout — invalidate the current session token. */
+app.post('/api/logout', (req, res) => {
+  const s = sessionFor(req);
+  if (s) SESSIONS.delete(s.token);
+  res.json({ ok: true });
+});
+
+/** GET /api/me — current session info (used by the UI to restore role). */
+app.get('/api/me', requireAuth, (req, res) => {
+  res.json({ username: req.user.username, role: req.user.role, displayName: req.user.displayName });
 });
 
 /**

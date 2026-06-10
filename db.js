@@ -26,6 +26,17 @@ function init(dbPath = path.join(__dirname, 'control-tower.db')) {
       avg_latency_ms INTEGER, status TEXT)`);
     db.run('CREATE INDEX IF NOT EXISTS idx_exec_agent ON executions(agent_id, ts)');
     db.run('CREATE INDEX IF NOT EXISTS idx_snap_agent ON agent_snapshots(agent_id, ts)');
+    // ── Admin / RBAC / BU tables ──────────────────────────────────────────────
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, username TEXT UNIQUE, pass_hash TEXT, pass_salt TEXT,
+      role TEXT, display_name TEXT, created_at TEXT, last_login TEXT)`);
+    db.run(`CREATE TABLE IF NOT EXISTS agent_meta (
+      agent_id TEXT PRIMARY KEY, name TEXT, framework TEXT, model TEXT,
+      department TEXT, owner TEXT, notes TEXT, updated_at TEXT)`);
+    db.run(`CREATE TABLE IF NOT EXISTS business_units (
+      bu_id TEXT PRIMARY KEY, name TEXT, budget REAL, owner TEXT, created_at TEXT)`);
+    db.run(`CREATE TABLE IF NOT EXISTS agent_bu_map (
+      agent_id TEXT, bu_id TEXT, PRIMARY KEY(agent_id, bu_id))`);
     console.log('[db] SQLite (wasm) persistence ready →', dbPath);
     return db;
   } catch (e) { console.warn('[db] init failed, persistence disabled:', e.message); db = null; return null; }
@@ -98,7 +109,65 @@ function agentHistory(agentId, fromTs = 0) {
   } catch { return []; }
 }
 
+// ── Users / stakeholders ──────────────────────────────────────────────────────
+function listUsers() { if (!db) return []; try { return db.all('SELECT id,username,role,display_name,created_at,last_login FROM users ORDER BY username'); } catch { return []; } }
+function getUser(username) { if (!db) return null; try { return db.get('SELECT * FROM users WHERE username=?', [username]); } catch { return null; } }
+function countUsers() { if (!db) return 0; try { return (db.get('SELECT COUNT(*) AS n FROM users') || {}).n || 0; } catch { return 0; } }
+function upsertUser(u) {
+  if (!db) return;
+  try {
+    db.run(`INSERT INTO users(id,username,pass_hash,pass_salt,role,display_name,created_at,last_login)
+      VALUES(?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET username=excluded.username, pass_hash=excluded.pass_hash,
+        pass_salt=excluded.pass_salt, role=excluded.role, display_name=excluded.display_name`,
+      [u.id, u.username, u.pass_hash, u.pass_salt, u.role, u.display_name || u.username,
+       u.created_at || new Date().toISOString(), u.last_login || null]);
+  } catch (e) { console.warn('[db] upsertUser:', e.message); }
+}
+function setUserLastLogin(id, ts) { if (!db) return; try { db.run('UPDATE users SET last_login=? WHERE id=?', [ts, id]); } catch { /* ignore */ } }
+function deleteUser(id) { if (!db) return; try { db.run('DELETE FROM users WHERE id=?', [id]); } catch { /* ignore */ } }
+
+// ── Agent metadata overrides (admin-edited) ────────────────────────────────────
+function getAgentMeta(agentId) { if (!db) return null; try { return db.get('SELECT * FROM agent_meta WHERE agent_id=?', [agentId]); } catch { return null; } }
+function allAgentMeta() { if (!db) return {}; try { const m = {}; db.all('SELECT * FROM agent_meta').forEach(r => m[r.agent_id] = r); return m; } catch { return {}; } }
+function setAgentMeta(agentId, meta) {
+  if (!db) return;
+  try {
+    db.run(`INSERT INTO agent_meta(agent_id,name,framework,model,department,owner,notes,updated_at)
+      VALUES(?,?,?,?,?,?,?,?)
+      ON CONFLICT(agent_id) DO UPDATE SET name=excluded.name, framework=excluded.framework,
+        model=excluded.model, department=excluded.department, owner=excluded.owner,
+        notes=excluded.notes, updated_at=excluded.updated_at`,
+      [agentId, meta.name || null, meta.framework || null, meta.model || null,
+       meta.department || null, meta.owner || null, meta.notes || null, new Date().toISOString()]);
+  } catch (e) { console.warn('[db] setAgentMeta:', e.message); }
+}
+
+// ── Business units + agent↔BU mapping ──────────────────────────────────────────
+function listBUs() { if (!db) return []; try { return db.all('SELECT * FROM business_units ORDER BY name'); } catch { return []; } }
+function upsertBU(b) {
+  if (!db) return;
+  try {
+    db.run(`INSERT INTO business_units(bu_id,name,budget,owner,created_at) VALUES(?,?,?,?,?)
+      ON CONFLICT(bu_id) DO UPDATE SET name=excluded.name, budget=excluded.budget, owner=excluded.owner`,
+      [b.bu_id, b.name, b.budget != null ? b.budget : null, b.owner || null, b.created_at || new Date().toISOString()]);
+  } catch (e) { console.warn('[db] upsertBU:', e.message); }
+}
+function deleteBU(buId) { if (!db) return; try { db.run('DELETE FROM business_units WHERE bu_id=?', [buId]); db.run('DELETE FROM agent_bu_map WHERE bu_id=?', [buId]); } catch { /* ignore */ } }
+function getAgentBUs(agentId) { if (!db) return []; try { return db.all('SELECT bu_id FROM agent_bu_map WHERE agent_id=?', [agentId]).map(r => r.bu_id); } catch { return []; } }
+function allAgentBUs() { if (!db) return {}; try { const m = {}; db.all('SELECT agent_id,bu_id FROM agent_bu_map').forEach(r => (m[r.agent_id] = m[r.agent_id] || []).push(r.bu_id)); return m; } catch { return {}; } }
+function setAgentBUs(agentId, buIds) {
+  if (!db) return;
+  try {
+    db.run('DELETE FROM agent_bu_map WHERE agent_id=?', [agentId]);
+    for (const b of (buIds || [])) db.run('INSERT OR IGNORE INTO agent_bu_map(agent_id,bu_id) VALUES(?,?)', [agentId, b]);
+  } catch (e) { console.warn('[db] setAgentBUs:', e.message); }
+}
+
 module.exports = {
   init, recordExecution, snapshotAgents, prune, recentExecutions, executionTotals, costTrend, agentHistory,
+  listUsers, getUser, countUsers, upsertUser, setUserLastLogin, deleteUser,
+  getAgentMeta, allAgentMeta, setAgentMeta,
+  listBUs, upsertBU, deleteBU, getAgentBUs, allAgentBUs, setAgentBUs,
   get enabled() { return !!db; },
 };

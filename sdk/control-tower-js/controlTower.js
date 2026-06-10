@@ -61,11 +61,11 @@ class ControlTower {
   constructor({
     agentId            = process.env.CONTROL_TOWER_AGENT_ID,
     serverUrl          = process.env.CONTROL_TOWER_URL || 'http://localhost:3090',
-    name               = null,
-    department         = 'Unknown',
-    model              = null,
-    framework          = null,
-    heartbeatInterval  = 30,
+    name               = process.env.CONTROL_TOWER_NAME || null,
+    department         = process.env.CONTROL_TOWER_DEPARTMENT || 'Unknown',
+    model              = process.env.CONTROL_TOWER_MODEL || null,
+    framework          = process.env.CONTROL_TOWER_FRAMEWORK || null,
+    heartbeatInterval  = Number(process.env.CONTROL_TOWER_HEARTBEAT_SEC) || 30,
   } = {}) {
     if (!agentId) throw new Error('ControlTower: agentId is required (pass it or set CONTROL_TOWER_AGENT_ID)');
 

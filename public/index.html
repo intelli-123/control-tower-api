@@ -1410,6 +1410,7 @@ async function loadDashboard() {
       <td style="font-size:12px">${a.owner||'—'}</td>
       <td style="font-family:var(--font-mono);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(a.model||'')}">${a.model||'—'}</td>
       <td style="font-size:12px">${a.framework||'—'}</td>
+      <td style="max-width:200px">${tools||'<span style="color:var(--dim)">—</span>'}</td>
       <td>${statusHTML(effectiveStatus(a))}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${fmt(a.totals?.tokens||0)}</td>
       <td style="font-family:var(--font-mono);font-size:12px">$${(a.totals?.cost||0).toFixed(4)}</td>
@@ -1426,7 +1427,7 @@ async function loadDashboard() {
     <table>
       <thead><tr>
         <th>Agent</th><th>Type</th><th>Dept</th><th>Owner</th><th>Model</th><th>Framework</th>
-        <th>Status</th><th>Tokens</th><th>Cost</th><th>Heartbeat</th><th></th>
+        <th>Tools</th><th>Status</th><th>Tokens</th><th>Cost</th><th>Heartbeat</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -1456,7 +1457,6 @@ async function loadLineage() {
 
   // Layout: orchestrator at top center, agents in middle row, tools in bottom row
   const agentNodes = agents.slice(0, 6);
-  const allTools   = [...new Set(agentNodes.flatMap(a => (a.tools||[]).slice(0,2)))].slice(0,6);
 
   const topNode = { label: 'Orchestrator', x: W/2, y: 55, color: '#00D4FF', r: 28, type: 'orch' };
   const agentY  = 160;
@@ -1471,10 +1471,18 @@ async function loadLineage() {
   }));
   const posById = {}; aN.forEach(n => { posById[n.id] = n; });
 
-  const tSpacing = W / (allTools.length + 1);
-  const tN = allTools.map((t, i) => ({
-    label: t, x: tSpacing * (i+1), y: toolY, color: '#7B6EF6', r: 16, type: 'tool',
-  }));
+  // Tools are clustered directly beneath the agent that actually owns them,
+  // so each dashed edge runs (near-)vertically and maps to the right agent.
+  const TOOL_GAP = 70, MAX_TOOLS = 2;
+  const tN = [];
+  agentNodes.forEach((a, i) => {
+    const owner = aN[i];
+    const tools = (a.tools || []).slice(0, MAX_TOOLS);
+    tools.forEach((t, ti) => {
+      const offset = (ti - (tools.length - 1) / 2) * TOOL_GAP;
+      tN.push({ label: t, ownerId: a.agent_id, x: owner.x + offset, y: toolY, color: '#7B6EF6', r: 16, type: 'tool' });
+    });
+  });
 
   // Draw edges
   const drawEdge = (a, b, dashed, color) => {
@@ -1491,8 +1499,8 @@ async function loadLineage() {
   };
 
   aN.forEach(a => drawEdge(topNode, a, false, '#00D4FF'));
-  tN.forEach((t, i) => {
-    const src = aN[i % aN.length];
+  tN.forEach(t => {
+    const src = posById[t.ownerId];
     if (src) drawEdge(src, t, true, '#7B6EF6');
   });
 

@@ -346,11 +346,11 @@ nav { padding: 12px 0; flex: 1; }
 }
 @keyframes loginFloat { from { transform: translate(-30px,-10px) scale(1); } to { transform: translate(40px,30px) scale(1.1); } }
 .login-box {
-  position: relative; z-index: 1; width: 100%; max-width: 760px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  position: relative; z-index: 1; width: 100%; max-width: 420px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-  border: 1px solid var(--border2); border-radius: 18px; padding: 30px 32px;
-  box-shadow: 0 30px 90px rgba(0,0,0,0.55);
+  border: 1px solid var(--border2); border-radius: 16px; padding: 28px 26px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.45);
   animation: loginIn .35s cubic-bezier(.2,.8,.2,1);
 }
 @keyframes loginIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
@@ -984,12 +984,10 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
           <span class="pill pill-blue" style="font-size:10px">admin only</span></div>
         <div class="table-card" id="admin-users" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
 
-        <div class="section-head" style="margin-top:20px"><div class="section-title">Agents</div>
+        <div class="section-head" style="margin-top:20px"><div class="section-title">Agents &amp; MCP servers</div>
           <span class="pill pill-blue" style="font-size:10px">detected from heartbeats</span></div>
+        <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Set each agent's / MCP's department, owner, model and framework — overrides what the SDK reports.</div>
         <div class="table-card" id="admin-agents" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
-
-        <div class="section-head" style="margin-top:20px"><div class="section-title">Business units &amp; mapping</div></div>
-        <div class="table-card" id="admin-bus" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
       </div>
 
     </div><!-- /content -->
@@ -1207,10 +1205,7 @@ function loadPanel(name) {
 // ── Admin panel ───────────────────────────────────────────────────────────────
 async function loadAdmin() {
   await renderAdminUsers();
-  if (typeof renderAdminAgents === 'function') renderAdminAgents();   // Phase 3
-  else document.getElementById('admin-agents').innerHTML = '<div class="empty-state"><p>Agent metadata editor — next.</p></div>';
-  if (typeof renderAdminBUs === 'function') renderAdminBUs();         // Phase 4
-  else document.getElementById('admin-bus').innerHTML = '<div class="empty-state"><p>Business-unit mapping — next.</p></div>';
+  renderAdminAgents();   // agents: set department + owner (incl. MCP)
 }
 
 async function renderAdminUsers() {
@@ -1222,29 +1217,31 @@ async function renderAdminUsers() {
       <td>${u.display_name || u.username}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${u.username}</td>
       <td><span class="pill pill-blue" style="font-size:10px">${(ROLE_CONFIG[u.role]?.label) || u.role}</span></td>
+      <td style="font-size:12px">${u.department || '—'}</td>
       <td style="font-family:var(--font-mono);font-size:11px;color:var(--dim)">${u.last_login ? ago(u.last_login) : 'never'}</td>
       <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="adminDeleteUser('${u.id}','${(u.username||'').replace(/['"\\]/g,'')}')">Remove</button></td>
     </tr>`).join('');
   document.getElementById('admin-users').innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-      <input class="cd-filter" id="nu-username" placeholder="username" style="width:130px">
-      <input class="cd-filter" id="nu-display" placeholder="display name" style="width:150px">
-      <input class="cd-filter" id="nu-password" type="password" placeholder="password" style="width:140px">
+      <input class="cd-filter" id="nu-username" placeholder="username" style="width:120px">
+      <input class="cd-filter" id="nu-display" placeholder="display name" style="width:140px">
+      <input class="cd-filter" id="nu-password" type="password" placeholder="password" style="width:130px">
       <select class="cd-filter" id="nu-role">${roleOpts}</select>
+      <input class="cd-filter" id="nu-dept" placeholder="department" style="width:130px">
       <button class="btn btn-primary" onclick="adminAddUser()" style="font-size:12px">+ Add stakeholder</button>
       <span id="admin-users-msg" style="font-size:12px;color:var(--muted)"></span>
     </div>
     ${users.length
-      ? `<table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Last login</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Department</th><th>Last login</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : '<div class="empty-state"><p>No stakeholders yet — add one above.</p></div>'}`;
 }
 
 async function adminAddUser() {
   const msg = document.getElementById('admin-users-msg');
-  const username = val('nu-username'), display = val('nu-display'), password = val('nu-password'), role = val('nu-role');
+  const username = val('nu-username'), display = val('nu-display'), password = val('nu-password'), role = val('nu-role'), department = val('nu-dept');
   if (!username || !password) { msg.textContent = 'username & password required'; return; }
   msg.textContent = 'adding…';
-  const r = await apiFetch('/api/admin/users', 'POST', { username, password, role, display_name: display });
+  const r = await apiFetch('/api/admin/users', 'POST', { username, password, role, display_name: display, department });
   if (r && r.ok) renderAdminUsers();
   else msg.textContent = (r && r.error) ? r.error : 'failed';
 }
@@ -1397,23 +1394,20 @@ async function loadDashboard() {
     const tools = (a.tools||[]).slice(0,4).map(t=>`<span class="tool-chip">${t}</span>`).join('')
                 + ((a.tools||[]).length>4 ? `<span class="tool-chip">+${a.tools.length-4}</span>` : '');
     const hb = a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat+'s ago' : '–';
+    const isMcp = a.framework === 'MCP';
     return `<tr>
-      <td style="min-width:160px">
+      <td style="min-width:140px">
         <div class="agent-name-link" onclick="openAgentDetail('${a.agent_id}')" title="View agent detail">${a.name||a.agent_id}</div>
-        <div style="font-size:10px;font-family:var(--font-mono);color:var(--muted);margin-top:1px">${a.framework||'—'} · ${a.department||'—'}</div>
-        <div style="font-size:10px;font-family:var(--font-mono);color:var(--dim);margin-top:1px" title="model">${a.model||'—'}</div>
+        <div style="font-size:10px;font-family:var(--font-mono);color:var(--dim);margin-top:1px">${a.agent_id}</div>
       </td>
+      <td><span class="pill ${isMcp?'pill-amber':'pill-blue'}" style="font-size:10px">${isMcp?'MCP':'Agent'}</span></td>
+      <td style="font-size:12px">${a.department||'—'}</td>
+      <td style="font-size:12px">${a.owner||'—'}</td>
+      <td style="font-family:var(--font-mono);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(a.model||'')}">${a.model||'—'}</td>
+      <td style="font-size:12px">${a.framework||'—'}</td>
       <td>${statusHTML(effectiveStatus(a))}</td>
-      <td style="max-width:180px;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.current_task||'–'}</td>
-      <td style="min-width:160px">${tools||`<span style="color:var(--dim);font-size:11px">none registered</span>`}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${fmt(a.totals?.tokens||0)}</td>
       <td style="font-family:var(--font-mono);font-size:12px">$${(a.totals?.cost||0).toFixed(4)}</td>
-      <td style="min-width:100px">
-        <div style="display:flex;align-items:center;gap:7px">
-          <div class="prog" style="flex:1"><div class="prog-fill" style="width:${util}%;background:${utilColor(util)}"></div></div>
-          <span style="font-size:11px;font-family:var(--font-mono);color:var(--muted)">${util}%</span>
-        </div>
-      </td>
       <td style="font-size:11px;font-family:var(--font-mono);color:var(--dim)">${hb}</td>
       <td>
         <button class="icon-btn" onclick="drillAudit('${a.agent_id}')" title="View audit log">
@@ -1426,9 +1420,8 @@ async function loadDashboard() {
   document.getElementById('agents-table-wrap').innerHTML = `
     <table>
       <thead><tr>
-        <th>Agent</th><th>Status</th><th>Current task</th><th>Tools</th>
-        <th>Tokens</th><th>Cost</th><th style="min-width:120px">Utilization</th>
-        <th>Heartbeat</th><th></th>
+        <th>Agent</th><th>Type</th><th>Dept</th><th>Owner</th><th>Model</th><th>Framework</th>
+        <th>Status</th><th>Tokens</th><th>Cost</th><th>Heartbeat</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -1962,10 +1955,7 @@ const ROLE_CONFIG = {
 };
 
 function teamAgents() {
-  if (!_team) return _agents;
-  return _teamMode === 'bu'
-    ? _agents.filter(a => (a.business_units || []).includes(_team))
-    : _agents.filter(a => (a.department || 'Unknown') === _team);
+  return _team ? _agents.filter(a => (a.department || 'Unknown') === _team) : _agents;
 }
 function avgErrorRate(list) { const xs=list.map(a=>a.metrics?.error_rate||0); return xs.length?xs.reduce((s,v)=>s+v,0)/xs.length:0; }
 function highAlerts() { return _alerts.filter(a => a.severity === 'high'); }
@@ -1979,7 +1969,7 @@ const CARD_DEFS = {
   error_rate: () => { const r=avgErrorRate(_agents.filter(a=>!isOffline(a))); return {label:'Overall error rate', value:(r*100).toFixed(1)+'%', tone:r>0.15?'tone-bad':r>0.05?'tone-warn':'tone-ok', sub:'avg across agents'}; },
   serious_issues: () => { const n=highAlerts().length; return {label:'Serious issues', value:n, tone:n?'tone-bad':'tone-ok', sub:'high-severity alerts'}; },
 
-  team_cost_vs_budget: () => { const src=_teamMode==='bu'?(_cost?.by_bu||{}):(_cost?.by_department||{}); const d=src[_team]||{}, p=d.pct; return {label:`Team cost vs budget${_team?` · ${teamLabel()}`:''}`, value:`${fmtCost(d.cost||0)} / ${d.budget!=null?fmtCost(d.budget):'—'}`, tone:budgetTone(p), sub:(p!=null?`${p}% used`:'no budget set')+budgetBar(p)}; },
+  team_cost_vs_budget: () => { const d=(_cost?.by_department||{})[_team]||{}, p=d.pct; return {label:`Team cost vs budget${_team?` · ${_team}`:''}`, value:`${fmtCost(d.cost||0)} / ${d.budget!=null?fmtCost(d.budget):'—'}`, tone:budgetTone(p), sub:(p!=null?`${p}% used`:'no budget set')+budgetBar(p)}; },
   work_done: () => ({label:'Work done', value:fmt(teamAgents().reduce((s,a)=>s+(a.executions_count||0),0)), sub:'requests completed'}),
   team_error_rate: () => { const r=avgErrorRate(teamAgents()); return {label:'Team error rate', value:(r*100).toFixed(1)+'%', tone:r>0.15?'tone-bad':r>0.05?'tone-warn':'tone-ok', sub:teamLabel()||'all teams'}; },
   approvals_waiting: () => { const n=(_esc.pending||[]).length; return {label:'Approvals waiting', value:n, tone:n?'tone-warn':'tone-ok', sub:'pending escalations'}; },
@@ -2014,24 +2004,17 @@ function renderRoleCards() {
   }).join('');
 }
 
-async function populateTeamSelector() {
+function populateTeamSelector() {
   const cfg=ROLE_CONFIG[_role], wrap=document.getElementById('team-selector-wrap'), sel=document.getElementById('team-selector');
   if (!cfg || !wrap || !sel) return;
   if (!cfg.teamScoped) { wrap.style.display='none'; return; }
   wrap.style.display='flex';
-  // Prefer admin-defined Business Units; fall back to the department field.
-  let opts = [];
-  const bd = await apiFetch('/api/bus');
-  if (bd && Array.isArray(bd.bus) && bd.bus.length) {
-    _teamMode = 'bu';
-    opts = bd.bus.map(b => ({ value: b.bu_id, label: b.name }));
-  } else {
-    _teamMode = 'dept';
-    opts = [...new Set(_agents.map(a => a.department || 'Unknown'))].sort().map(d => ({ value: d, label: d }));
-  }
-  _teamLabels = {}; opts.forEach(o => _teamLabels[o.value] = o.label);
-  if ((!_team || !_teamLabels[_team]) && opts.length) _team = opts[0].value;
-  sel.innerHTML = opts.map(o => `<option value="${o.value}" ${o.value===_team?'selected':''}>${o.label}</option>`).join('');
+  // Scope by department. Default to the logged-in stakeholder's department.
+  let userDept=''; try { userDept = localStorage.getItem('ct-dept') || ''; } catch (e) {}
+  const depts = [...new Set(_agents.map(a => a.department || 'Unknown'))].sort();
+  if (userDept && !depts.includes(userDept)) depts.unshift(userDept);   // show even before agents report
+  if (!_team) _team = (userDept && depts.includes(userDept)) ? userDept : (depts[0] || '');
+  sel.innerHTML = depts.map(d => `<option ${d===_team?'selected':''}>${d}</option>`).join('');
 }
 function onTeamChange() { _team=document.getElementById('team-selector').value; renderRoleCards(); if (_currentPanel==='charts') renderCharts(); }
 
@@ -2048,6 +2031,7 @@ async function doLogin() {
       localStorage.setItem('ct-token', r.token);
       localStorage.setItem('ct-role', r.role);
       localStorage.setItem('ct-user', r.displayName || username);
+      localStorage.setItem('ct-dept', r.department || '');
     } catch (e) {}
     err.textContent = '';
     document.getElementById('login-password').value = '';
@@ -2242,7 +2226,7 @@ async function init() {
   let me = null;
   if (token) me = await apiFetch('/api/me');   // 401 → onSessionExpired() shows login
   if (me && me.role && ROLE_CONFIG[me.role]) {
-    try { localStorage.setItem('ct-role', me.role); localStorage.setItem('ct-user', me.displayName || me.username); } catch (e) {}
+    try { localStorage.setItem('ct-role', me.role); localStorage.setItem('ct-user', me.displayName || me.username); localStorage.setItem('ct-dept', me.department || ''); } catch (e) {}
     applyRole(me.role);
   } else {
     document.getElementById('login-screen').classList.add('show');

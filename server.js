@@ -97,7 +97,7 @@ const SESSIONS = new Map();   // token -> { username, role, displayName, exp }
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 function issueToken(user) {
   const token = crypto.randomUUID();
-  SESSIONS.set(token, { username: user.username, role: user.role, displayName: user.display_name || user.username, exp: Date.now() + SESSION_TTL_MS });
+  SESSIONS.set(token, { username: user.username, role: user.role, displayName: user.display_name || user.username, department: user.department || null, exp: Date.now() + SESSION_TTL_MS });
   return token;
 }
 function sessionFor(req) {
@@ -280,7 +280,7 @@ app.post('/api/login', (req, res) => {
   if (u && verifyPassword(password, u.pass_hash, u.pass_salt)) {
     const token = issueToken(u);
     dbStore.setUserLastLogin(u.id, now());
-    return res.json({ ok: true, token, role: u.role, displayName: u.display_name || u.username });
+    return res.json({ ok: true, token, role: u.role, displayName: u.display_name || u.username, department: u.department || null });
   }
   return res.status(401).json({ ok: false, error: 'Invalid username or password' });
 });
@@ -294,7 +294,7 @@ app.post('/api/logout', (req, res) => {
 
 /** GET /api/me — current session info (used by the UI to restore role). */
 app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ username: req.user.username, role: req.user.role, displayName: req.user.displayName });
+  res.json({ username: req.user.username, role: req.user.role, displayName: req.user.displayName, department: req.user.department || null });
 });
 
 /**
@@ -445,15 +445,12 @@ app.post('/api/heartbeat', (req, res) => {
 app.get('/api/agents', (req, res) => {
   markOfflineAgents();
   const meta   = dbStore.allAgentMeta();   // admin overrides
-  const buMap  = dbStore.allAgentBUs();    // agent_id -> [bu_id]
-  const buName = {}; dbStore.listBUs().forEach(b => buName[b.bu_id] = b.name);
   const agents = Object.values(store.agents).map(a => {
     const execs = store.executions.filter(e => e.agent_id === a.agent_id);
     const avgLat = execs.length
       ? Math.round(execs.reduce((s, e) => s + e.latency_ms, 0) / execs.length)
       : 0;
     const o = meta[a.agent_id] || {};   // admin overrides win for display
-    const bus = buMap[a.agent_id] || [];
     return {
       ...a,
       name:        o.name       || a.name,
@@ -462,8 +459,6 @@ app.get('/api/agents', (req, res) => {
       department:  o.department || a.department,
       owner:       o.owner      || a.owner || null,
       reported:    { name: a.name, framework: a.framework, model: a.model, department: a.department }, // raw heartbeat values
-      business_units: bus,
-      bu_names:    bus.map(id => buName[id] || id),
       seconds_since_heartbeat: a.last_heartbeat
         ? Math.floor((Date.now() - new Date(a.last_heartbeat).getTime()) / 1000)
         : null,
@@ -767,16 +762,6 @@ app.get('/api/cost', (req, res) => {
     d.pct    = pct(d.cost, d.budget);
   }
 
-  // Cost by Business Unit (admin-defined BUs + agent↔BU mapping)
-  const buMap = dbStore.allAgentBUs();             // agent_id -> [bu_id]
-  const byBu  = {};
-  dbStore.listBUs().forEach(b => byBu[b.bu_id] = { name: b.name, cost: 0, tokens: 0, budget: b.budget != null ? b.budget : null });
-  for (const agent of Object.values(store.agents)) {
-    const cost = agent.totals?.cost || 0, tokens = agent.totals?.tokens || 0;
-    (buMap[agent.agent_id] || []).forEach(bid => { if (byBu[bid]) { byBu[bid].cost += cost; byBu[bid].tokens += tokens; } });
-  }
-  Object.values(byBu).forEach(d => { d.cost = parseFloat(d.cost.toFixed(4)); d.pct = pct(d.cost, d.budget); });
-
   const totalCost   = Object.values(byAgent).reduce((s, a) => s + a.cost, 0);
   const totalTokens = Object.values(byAgent).reduce((s, a) => s + a.tokens, 0);
 
@@ -788,7 +773,6 @@ app.get('/api/cost', (req, res) => {
     budgets:           BUDGETS,
     by_agent:          byAgent,
     by_department:     byDept,
-    by_bu:             byBu,
     timestamp:         now(),
   });
 });
@@ -885,13 +869,13 @@ app.get('/api/admin/users', (req, res) => {
 });
 
 app.post('/api/admin/users', (req, res) => {
-  const { username, password, role, display_name } = req.body || {};
+  const { username, password, role, display_name, department } = req.body || {};
   const uname = (username || '').trim();
   if (!uname || !password || !role) return res.status(400).json({ error: 'username, password and role are required' });
   if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: `invalid role (allowed: ${VALID_ROLES.join(', ')})` });
   if (dbStore.getUser(uname)) return res.status(409).json({ error: 'username already exists' });
   const { hash, salt } = hashPassword(password);
-  dbStore.upsertUser({ id: crypto.randomUUID(), username: uname, pass_hash: hash, pass_salt: salt, role, display_name: display_name || uname });
+  dbStore.upsertUser({ id: crypto.randomUUID(), username: uname, pass_hash: hash, pass_salt: salt, role, display_name: display_name || uname, department: department || null });
   res.status(201).json({ ok: true });
 });
 
@@ -912,24 +896,6 @@ app.post('/api/admin/agents/:id/meta', (req, res) => {
   dbStore.setAgentMeta(req.params.id, { name, framework, model, department, owner, notes });
   res.json({ ok: true });
 });
-
-// ─── Admin: business units + agent↔BU mapping ────────────────────────────────
-app.get('/api/admin/bus', (req, res) => res.json({ bus: dbStore.listBUs(), map: dbStore.allAgentBUs() }));
-app.post('/api/admin/bus', (req, res) => {
-  const { name, budget, owner } = req.body || {};
-  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
-  dbStore.upsertBU({ bu_id: crypto.randomUUID(), name: String(name).trim(), budget: (budget != null && budget !== '') ? Number(budget) : null, owner: owner || null });
-  res.status(201).json({ ok: true });
-});
-app.delete('/api/admin/bus/:id', (req, res) => { dbStore.deleteBU(req.params.id); res.json({ ok: true }); });
-app.post('/api/admin/agents/:id/bus', (req, res) => {
-  const { bu_ids } = req.body || {};
-  dbStore.setAgentBUs(req.params.id, Array.isArray(bu_ids) ? bu_ids : []);
-  res.json({ ok: true });
-});
-
-// Any authenticated role can read the BU list (dashboard team selector).
-app.get('/api/bus', (req, res) => res.json({ bus: dbStore.listBUs() }));
 
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────
 const path = require('path');

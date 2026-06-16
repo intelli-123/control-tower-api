@@ -38,6 +38,23 @@ function importClaudeServers(claudePath) {
   }
 }
 
+/**
+ * Identity of an MCP server by what it actually connects to — not its name.
+ * The same server is frequently configured in several hosts under different
+ * names (e.g. an explicit `gitmcp` url and a Claude `mcp-remote <same-url>`),
+ * so we key on the resolved endpoint: an explicit url, a url embedded in the
+ * launch args (mcp-remote/supergateway style), else the command + args.
+ */
+function canonicalTarget(s) {
+  let url = s.url;
+  if (!url && Array.isArray(s.args)) url = s.args.find(a => /^https?:\/\//i.test(a));
+  if (url) {
+    try { const u = new URL(url); return 'url:' + (u.host + u.pathname).replace(/\/+$/, '').toLowerCase(); }
+    catch { return 'url:' + String(url).replace(/\/+$/, '').toLowerCase(); }
+  }
+  return 'cmd:' + [s.command, ...(s.args || [])].join(' ').trim().toLowerCase();
+}
+
 function gatherServers(cfg) {
   const all = [...(cfg.servers || [])];
   if (cfg.claudeConfigPath) all.push(...importClaudeServers(cfg.claudeConfigPath));
@@ -46,8 +63,20 @@ function gatherServers(cfg) {
     found.forEach(f => console.log(`[mcp] found ${f.count} MCP(s) in ${f.host} → ${f.path}`));
     all.push(...servers);
   }
-  const seen = new Set();
-  return all.filter(s => s && s.name && !seen.has(s.name) && seen.add(s.name));
+  // Dedupe by name AND by resolved target, so the same server discovered from
+  // multiple host configs is monitored once (first occurrence wins).
+  const seenName = new Set(), seenTarget = new Set();
+  const out = [];
+  for (const s of all) {
+    if (!s || !s.name || seenName.has(s.name)) continue;
+    const tgt = canonicalTarget(s);
+    if (seenTarget.has(tgt)) {
+      console.log(`[mcp] skipping "${s.name}" — duplicate of an earlier server (same target: ${tgt})`);
+      continue;
+    }
+    seenName.add(s.name); seenTarget.add(tgt); out.push(s);
+  }
+  return out;
 }
 
 let _clients = [];

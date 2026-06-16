@@ -20,8 +20,8 @@ node server.js
 | File | What it is |
 |---|---|
 | `server.js` | The API server (Express) |
-| `control_tower.py` | Python SDK — drop into any Python agent |
-| `controlTower.js` | Node.js SDK — drop into any Node agent |
+| `sdk/control-tower-js/` | Node.js SDK — installable npm package (`control-tower-sdk`) |
+| `sdk/control-tower-py/` | Python SDK — installable pip package (`control_tower`) |
 
 ---
 

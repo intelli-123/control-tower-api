@@ -477,6 +477,10 @@ nav { padding: 12px 0; flex: 1; }
 .detail-stat { background: var(--bg, #0d1218); border: 1px solid var(--border, #25303d); border-radius: 8px; padding: 12px; }
 .detail-stat .v { font-size: 18px; font-weight: 600; font-family: var(--font-mono); }
 .detail-stat .l { font-size: 10px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em; }
+.ad-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px; margin-bottom: 16px; }
+.ad-meta .m { background: var(--bg, #0d1218); border: 1px solid var(--border, #25303d); border-radius: 8px; padding: 10px 12px; }
+.ad-meta .m .l { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.ad-meta .m .v { font-size: 13px; font-weight: 600; margin-top: 3px; word-break: break-word; }
 .preset-btn {
   font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--border, #25303d); background: transparent; color: var(--muted); margin-right: 6px;
@@ -1066,6 +1070,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       </div>
     </div>
     <div class="modal-body">
+      <div id="ad-meta" class="ad-meta"></div>
       <div style="margin-bottom:14px">
         <span class="preset-btn" data-preset="today" onclick="setDetailPreset('today')">Today</span>
         <span class="preset-btn active" data-preset="7d" onclick="setDetailPreset('7d')">7 days</span>
@@ -1698,12 +1703,27 @@ function presetToFrom(preset) {
   return ''; // all
 }
 
+function renderAgentMeta(a, agentId) {
+  const el = document.getElementById('ad-meta');
+  if (!el) return;
+  a = a || {};
+  const isMcp = (a.framework || '').toUpperCase() === 'MCP' || /^mcp[-:]/i.test(agentId);
+  const cell = (label, value) => `<div class="m"><div class="l">${label}</div><div class="v" title="${escAttr(value||'')}">${value || '—'}</div></div>`;
+  el.innerHTML =
+    cell('Type', isMcp ? 'MCP' : 'Agent') +
+    cell('Dept', a.department) +
+    cell('Owner', a.owner) +
+    cell('Model', a.model) +
+    cell('Framework', a.framework);
+}
+
 function openAgentDetail(agentId) {
   _detailAgent = agentId; _detailPreset = '7d'; _detailSort = 'recent';
   document.querySelectorAll('#agent-modal .preset-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.preset === '7d'));
   const a = (_agents || []).find(x => x.agent_id === agentId);
-  document.getElementById('ad-title').textContent = (a?.name || agentId) + ' — executions';
+  document.getElementById('ad-title').textContent = (a?.name || agentId) + ' — details';
+  renderAgentMeta(a, agentId);
   document.getElementById('agent-modal').classList.add('open');
   document.body.classList.add('modal-open');
   loadAgentDetail();

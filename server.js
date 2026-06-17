@@ -19,6 +19,7 @@ const helmet  = require('helmet');
 const morgan  = require('morgan');
 const { v4: uuidv4 } = require('uuid');
 const dbStore = require('./db');
+const { buildSummary } = require('./insights');
 
 const app  = express();
 const PORT = process.env.PORT || 3090;
@@ -78,7 +79,7 @@ const pct = (spent, budget) => (budget > 0 ? +((spent / budget) * 100).toFixed(1
 
 // ─── Auth: per-user accounts (scrypt, no external deps) ──────────────────────
 const crypto = require('crypto');
-const VALID_ROLES = ['admin', 'cto', 'bu', 'lead', 'finops', 'sec', 'sre'];
+const VALID_ROLES = ['admin', 'cto', 'bu', 'lead', 'finops', 'sec', 'sre', 'ceo'];
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
@@ -442,10 +443,10 @@ app.post('/api/heartbeat', (req, res) => {
  * GET /api/agents
  * Returns all agents with their current state
  */
-app.get('/api/agents', (req, res) => {
+function agentsView() {
   markOfflineAgents();
-  const meta   = dbStore.allAgentMeta();   // admin overrides
-  const agents = Object.values(store.agents).map(a => {
+  const meta = dbStore.allAgentMeta();   // admin overrides
+  return Object.values(store.agents).map(a => {
     const execs = store.executions.filter(e => e.agent_id === a.agent_id);
     const avgLat = execs.length
       ? Math.round(execs.reduce((s, e) => s + e.latency_ms, 0) / execs.length)
@@ -467,6 +468,10 @@ app.get('/api/agents', (req, res) => {
       avg_latency_ms:     avgLat,   // wall-clock request latency
     };
   });
+}
+
+app.get('/api/agents', (req, res) => {
+  const agents = agentsView();
   // Overall request latency across all executions (for the dashboard latency card)
   const allExec = store.executions;
   const overallAvgLatency = allExec.length
@@ -731,7 +736,7 @@ app.get('/api/audit', (req, res) => {
  * GET /api/cost
  * Returns cost breakdown per agent, per department, and totals
  */
-app.get('/api/cost', (req, res) => {
+function computeCost() {
   const byAgent = {};
   const byDept  = {};
 
@@ -765,7 +770,7 @@ app.get('/api/cost', (req, res) => {
   const totalCost   = Object.values(byAgent).reduce((s, a) => s + a.cost, 0);
   const totalTokens = Object.values(byAgent).reduce((s, a) => s + a.tokens, 0);
 
-  res.json({
+  return {
     total_cost_usd:    parseFloat(totalCost.toFixed(4)),
     total_tokens:      totalTokens,
     total_budget:      BUDGETS.total || null,
@@ -774,8 +779,10 @@ app.get('/api/cost', (req, res) => {
     by_agent:          byAgent,
     by_department:     byDept,
     timestamp:         now(),
-  });
-});
+  };
+}
+
+app.get('/api/cost', (req, res) => res.json(computeCost()));
 
 /**
  * GET /api/cost/trend?from=<ISO>
@@ -784,6 +791,119 @@ app.get('/api/cost', (req, res) => {
 app.get('/api/cost/trend', (req, res) => {
   const fromTs = req.query.from ? new Date(req.query.from).getTime() : Date.now() - 24 * 3600 * 1000;
   res.json({ from: fromTs, points: dbStore.costTrend(fromTs || 0), persisted: dbStore.enabled });
+});
+
+// ─── Executive summary (CEO / CTO) ───────────────────────────────────────────
+/** Gather the inputs the rule engine needs from the live store + persistence. */
+function executiveData() {
+  const agents = agentsView();
+  const cost   = computeCost();
+  const escList = Object.values(store.escalations);
+  const esc = {
+    pending:  escList.filter(e => e.status === 'pending'),
+    resolved: escList.filter(e => e.status !== 'pending'),
+  };
+  const trend = dbStore.costTrend(Date.now() - 24 * 3600 * 1000);
+  return { agents, cost, alerts: store.alerts, esc, trend };
+}
+
+/**
+ * Optionally upgrade the narrative with Claude. Dependency-free: a raw https
+ * POST (mirrors mcp/controlTower.js). Returns the LLM text, or null on any
+ * failure so the caller keeps the rule-based narrative.
+ */
+function claudeNarrative(summary) {
+  return new Promise(resolve => {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) return resolve(null);
+    const model = process.env.CONTROL_TOWER_SUMMARY_MODEL || 'claude-sonnet-4-6';
+    const prompt =
+      'You are briefing a CEO on their AI agent fleet. In 3-5 sentences, write a crisp ' +
+      'executive summary with the most important takeaway first. Use only these metrics; do not invent numbers.\n\n' +
+      JSON.stringify({ kpis: summary.kpis, breakdowns: summary.breakdowns, insights: summary.insights }, null, 2);
+    const payload = JSON.stringify({ model, max_tokens: 400, messages: [{ role: 'user', content: prompt }] });
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    try {
+      const https = require('https');
+      const req = https.request({
+        hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'content-length': Buffer.byteLength(payload),
+        },
+      }, r => {
+        let body = '';
+        r.on('data', c => body += c);
+        r.on('end', () => {
+          try {
+            const j = JSON.parse(body);
+            const text = Array.isArray(j.content) ? j.content.map(b => b.text || '').join('').trim() : '';
+            finish(text || null);
+          } catch { finish(null); }
+        });
+      });
+      req.on('error', () => finish(null));
+      req.setTimeout(8000, () => { req.destroy(); finish(null); });
+      req.write(payload); req.end();
+    } catch { finish(null); }
+  });
+}
+
+app.get('/api/executive/summary', async (req, res) => {
+  const summary = buildSummary(executiveData());
+  const llm = await claudeNarrative(summary);
+  if (llm) { summary.narrative = llm; summary.engine = 'claude'; }
+  res.json({ ...summary, generated_at: now() });
+});
+
+/** Print-ready, standalone HTML report (browser → Print → Save as PDF). */
+app.get('/api/executive/report.html', (req, res) => {
+  const s = buildSummary(executiveData());
+  const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const k = s.kpis;
+  const sevColor = { high: '#c0392b', medium: '#b9770e', low: '#1e7e54' };
+  const kpiCard = (label, value, sub) =>
+    `<div class="kpi"><div class="kl">${esc(label)}</div><div class="kv">${esc(value)}</div><div class="ks">${esc(sub || '')}</div></div>`;
+  const deptRows = s.breakdowns.by_department.map(d =>
+    `<tr><td>${esc(d.dept)}</td><td class="num">$${(d.cost || 0).toFixed(2)}</td><td class="num">${d.budget != null ? '$' + d.budget : '—'}</td><td class="num">${d.pct != null ? d.pct + '%' : '—'}</td><td class="num">${(d.tokens || 0).toLocaleString()}</td></tr>`).join('');
+  const insightRows = s.insights.map(i =>
+    `<li><span class="sev" style="color:${sevColor[i.severity]}">${esc(i.severity.toUpperCase())}</span> <b>${esc(i.title)}</b><div class="idet">${esc(i.detail)}</div><div class="irec">→ ${esc(i.recommendation)}</div></li>`).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Executive Summary — Agent Control Tower</title>
+<style>
+  body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1a232e;max-width:900px;margin:32px auto;padding:0 24px}
+  h1{font-size:22px;margin:0 0 2px} .sub{color:#667;margin-bottom:20px;font-size:12px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+  .kpi{border:1px solid #d9e0e8;border-radius:8px;padding:12px}
+  .kl{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#778}
+  .kv{font-size:20px;font-weight:700;margin:4px 0} .ks{font-size:11px;color:#778}
+  h2{font-size:15px;margin:26px 0 8px;border-bottom:1px solid #e4e9ef;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #eef1f4}
+  th{font-size:11px;text-transform:uppercase;color:#778} .num{text-align:right;font-variant-numeric:tabular-nums}
+  ul{list-style:none;padding:0} li{border:1px solid #e4e9ef;border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .sev{font-size:10px;font-weight:700;margin-right:6px} .idet{color:#445;margin-top:3px} .irec{color:#1e7e54;margin-top:3px;font-size:13px}
+  .narr{background:#f6f8fa;border-radius:8px;padding:14px;margin:8px 0}
+  @media print{body{margin:0}}
+</style></head><body>
+  <h1>Executive Summary — Agent Control Tower</h1>
+  <div class="sub">Generated ${esc(now())} · engine: ${esc(s.engine)}</div>
+  <div class="kpis">
+    ${kpiCard('Total spend', k.cost.budget != null ? `$${(k.cost.total || 0).toFixed(2)} / $${k.cost.budget}` : `$${(k.cost.total || 0).toFixed(2)}`, k.cost.pct != null ? `${k.cost.pct}% of budget` : 'no budget set')}
+    ${kpiCard('Fleet', `${k.fleet.online}/${k.fleet.total} up`, `${k.fleet.offline} offline`)}
+    ${kpiCard('Active alerts', k.alerts.total, `${k.alerts.high} high · ${k.alerts.medium} med`)}
+    ${kpiCard('Approvals waiting', k.approvals_waiting, 'pending escalations')}
+  </div>
+  <div class="narr">${esc(s.narrative)}</div>
+  <h2>Cost by department</h2>
+  <table><thead><tr><th>Department</th><th class="num">Spend</th><th class="num">Budget</th><th class="num">% used</th><th class="num">Tokens</th></tr></thead>
+    <tbody>${deptRows || '<tr><td colspan="5">No cost data.</td></tr>'}</tbody></table>
+  <h2>Key insights &amp; recommendations</h2>
+  <ul>${insightRows}</ul>
+</body></html>`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 });
 
 // ─── CSV export (Excel-openable, no dependencies) ───────────────────────────

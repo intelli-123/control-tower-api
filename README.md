@@ -22,6 +22,25 @@ node server.js
 | `server.js` | The API server (Express) |
 | `sdk/control-tower-js/` | Node.js SDK — installable npm package (`control-tower-sdk`) |
 | `sdk/control-tower-py/` | Python SDK — installable pip package (`control_tower`) |
+| `insights.js` | Executive-summary rule engine (KPIs, insights, recommendations) |
+
+---
+
+## Configuration
+
+All settings are optional — see `.env.example`. Notable ones:
+
+| Variable | Purpose |
+|---|---|
+| `CT_ADMIN_PASSWORD` | Password for the seeded `admin` user (default `admin`). |
+| `CT_DB_PATH` | SQLite persistence path (default `./control-tower.db`). |
+| `CT_MONITOR_MCP=off` | Disable built-in MCP host discovery on startup. |
+| `ANTHROPIC_API_KEY` | **Optional.** If set, the Executive Summary narrative is written by Claude; otherwise a built-in rule engine is used. Failures fall back to rules. |
+| `CONTROL_TOWER_SUMMARY_MODEL` | Claude model for the summary (default `claude-sonnet-4-6`). |
+
+The **Executive Summary** (CEO / CTO roles) analyzes captured agent data into KPIs,
+ranked insights with recommendations, and a downloadable print-ready report —
+working with no API key out of the box.
 
 ---
 

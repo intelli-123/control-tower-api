@@ -789,6 +789,10 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         Dashboard
       </div>
+      <div class="nav-item" onclick="nav('executive',this)" data-nav="executive">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+        Executive
+      </div>
       <div class="nav-item" onclick="nav('charts',this)" data-nav="charts">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         Charts
@@ -870,6 +874,18 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         <div class="table-card" id="agents-table-wrap">
           <div class="loading"><div class="spin"></div> Loading agents…</div>
         </div>
+      </div>
+
+      <!-- EXECUTIVE -->
+      <div class="panel" id="panel-executive">
+        <div class="section-head">
+          <div class="section-title">Executive summary</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="pill pill-blue" style="font-size:10px" id="exec-engine">—</span>
+            <button class="btn" onclick="downloadExecReport()" title="Open a print-ready report (Save as PDF)">⬇ Download report</button>
+          </div>
+        </div>
+        <div id="exec-wrap"><div class="loading"><div class="spin"></div> Building summary…</div></div>
       </div>
 
       <!-- CHARTS -->
@@ -1093,6 +1109,7 @@ const API = '';  // same origin — server.js serves this file AND the API
 
 const TITLES = {
   dashboard:  ['Live Dashboard',     'real-time agent monitoring'],
+  executive:  ['Executive Summary',  'analyzed insights & recommendations'],
   lineage:    ['Lineage Graph',      'agent dependency map'],
   alerts:     ['Anomaly Alerts',     'auto-detected issues'],
   escalation: ['Human Escalations',  'pending decisions'],
@@ -1197,6 +1214,7 @@ function nav(name, el) {
 
 function loadPanel(name) {
   if (name === 'dashboard')  loadDashboard();
+  else if (name === 'executive')   loadExecutive();
   else if (name === 'charts')      renderCharts();
   else if (name === 'lineage')    loadLineage();
   else if (name === 'alerts')     loadAlerts();
@@ -1216,7 +1234,7 @@ async function loadAdmin() {
 async function renderAdminUsers() {
   const data = await apiFetch('/api/admin/users');
   const users = data?.users || [];
-  const roleOpts = ['sre','cto','bu','lead','finops','sec','admin']
+  const roleOpts = ['admin','cto','bu','lead','finops','sec','sre','ceo']
     .map(r => `<option value="${r}">${(ROLE_CONFIG[r]?.label) || r}</option>`).join('');
   const rows = users.map(u => `<tr>
       <td>${u.display_name || u.username}</td>
@@ -1962,9 +1980,12 @@ const ROLE_CONFIG = {
             cards:['agents_running','cost_vs_budget','active_alerts','approvals_waiting'],
             nav:['charts','lineage','alerts','escalation','cost','audit','admin'],
             charts:['cost_by_team','cost_trend'] },
+  ceo:    { icon:'🏛', label:'CEO', desc:'Executive overview: spend, fleet health, risks, and recommendations.',
+            cards:['cost_vs_budget','agents_running','serious_issues','approvals_waiting'],
+            nav:['executive','charts','cost'], charts:['cost_trend','cost_by_team'] },
   cto:    { icon:'🏢', label:'CTO', desc:'Total cost vs budget, fleet status, overall error rate, serious issues.',
             cards:['cost_vs_budget','agents_running','error_rate','serious_issues'],
-            nav:['charts','cost'], charts:['cost_trend','cost_by_team'] },
+            nav:['executive','charts','cost'], charts:['cost_trend','cost_by_team'] },
   bu:     { icon:'👔', label:'BU Head', desc:'Your team: spend vs budget, work done, error rate, approvals waiting.',
             cards:['team_cost_vs_budget','work_done','team_error_rate','approvals_waiting'],
             nav:['charts','cost','escalation'], charts:['cost_trend','cost_by_agent'], teamScoped:true },
@@ -2102,6 +2123,59 @@ function applyRole(role) {
 const CHART_PALETTE=['#00D4FF','#7B6EF6','#00E5A0','#F5A623','#FF4757','#4DA3FF','#b06ef6','#2dd4bf'];
 function chartCard(title,id){ return `<div class="chart-card"><div class="chart-title">${title}</div><canvas id="${id}" height="220"></canvas></div>`; }
 function _noData(ctx){ ctx.fillStyle='#5A6A7A'; ctx.font='12px DM Sans, sans-serif'; ctx.fillText('No data yet',12,24); }
+
+// ── Executive summary (CEO / CTO) ───────────────────────────────────────────
+let _execSummary = null;
+async function loadExecutive() {
+  const wrap = document.getElementById('exec-wrap');
+  wrap.innerHTML = '<div class="loading"><div class="spin"></div> Building summary…</div>';
+  const s = await apiFetch('/api/executive/summary');
+  if (!s) { wrap.innerHTML = '<div class="empty-state"><p>Could not load executive summary.</p></div>'; return; }
+  _execSummary = s;
+  const eng = document.getElementById('exec-engine');
+  if (eng) eng.textContent = s.engine === 'claude' ? 'AI · Claude' : 'rule-based';
+  const k = s.kpis || {}, sevPill = sv => sv==='high'?'pill-red':sv==='medium'?'pill-amber':'pill-green';
+  const kpiCards = [
+    {label:'Total spend', value:k.cost?.budget!=null?`${fmtCost(k.cost.total)} / ${fmtCost(k.cost.budget)}`:fmtCost(k.cost?.total), tone:budgetTone(k.cost?.pct), sub:(k.cost?.pct!=null?`${k.cost.pct}% of budget`:'no budget set')+budgetBar(k.cost?.pct)},
+    {label:'Fleet health', value:`${k.fleet?.online||0}/${k.fleet?.total||0} up`, tone:(k.fleet?.offline)?'tone-warn':'tone-ok', sub:`${k.fleet?.offline||0} offline`},
+    {label:'Active alerts', value:k.alerts?.total||0, tone:(k.alerts?.high)?'tone-bad':(k.alerts?.total)?'tone-warn':'tone-ok', sub:`${k.alerts?.high||0} high · ${k.alerts?.medium||0} med`},
+    {label:'Approvals waiting', value:k.approvals_waiting||0, tone:(k.approvals_waiting)?'tone-warn':'tone-ok', sub:'pending escalations'},
+  ];
+  const cards = kpiCards.map(c=>`<div class="metric-card"><div class="metric-label">${c.label}</div><div class="metric-value ${c.tone||''}">${c.value}</div><div class="metric-sub">${c.sub||''}</div></div>`).join('');
+  const insightItems = (s.insights||[]).map(i=>`
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+      <div><span class="pill ${sevPill(i.severity)}" style="font-size:10px">${i.severity}</span> <b>${i.title}</b></div>
+      <div style="color:var(--muted);font-size:12px;margin-top:3px">${i.detail}</div>
+      <div style="color:var(--green);font-size:12px;margin-top:3px">→ ${i.recommendation}</div>
+    </div>`).join('') || '<div class="empty-state"><p>No insights.</p></div>';
+  wrap.innerHTML = `
+    <div style="border-left:3px solid var(--accent);background:rgba(0,212,255,0.05);border-radius:6px;padding:14px 16px;margin-bottom:16px;font-size:14px;line-height:1.6">${s.narrative||''}</div>
+    <div class="metrics" style="margin-bottom:18px">${cards}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:18px">
+      ${chartCard('Cost by department','exec-c1')}
+      ${chartCard('Cost trend (24h)','exec-c2')}
+      ${chartCard('Alerts by severity','exec-c3')}
+    </div>
+    <div class="section-head"><div class="section-title">Key insights &amp; recommendations</div></div>
+    <div id="exec-insights">${insightItems}</div>`;
+  const dept = (s.breakdowns?.by_department||[]).map(d=>({label:d.dept,value:+(d.cost||0).toFixed(6),disp:fmtCost(d.cost)}));
+  drawBar(document.getElementById('exec-c1'), dept);
+  const trend = await apiFetch('/api/cost/trend');
+  drawLine(document.getElementById('exec-c2'), (trend?.points||[]).map(p=>({x:p.ts,y:p.cost||0})));
+  const sev = k.alerts||{};
+  drawBar(document.getElementById('exec-c3'), [{label:'high',value:sev.high||0},{label:'medium',value:sev.medium||0},{label:'low',value:sev.low||0}]);
+}
+
+async function downloadExecReport() {
+  // Fetch with the Bearer token, then open as a document — keeps the token out of the URL.
+  let token=null; try { token=localStorage.getItem('ct-token'); } catch(e) {}
+  const r = await fetch(API+'/api/executive/report.html', { headers: token?{Authorization:'Bearer '+token}:{} });
+  if (!r.ok) { alert('Could not generate report.'); return; }
+  const html = await r.text();
+  const w = window.open('', '_blank');
+  if (!w) { alert('Allow pop-ups to view the report.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
 
 function drawBar(canvas,data){
   const ctx=canvas.getContext('2d'); const W=canvas.width=canvas.clientWidth||340, H=canvas.height;

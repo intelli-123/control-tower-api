@@ -827,6 +827,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="nav-item" onclick="nav('admin',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2l7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V6z"/></svg>
         Admin
+        <span class="nav-badge nb-amber" id="nb-admin" style="display:none">0</span>
       </div>
 
     </nav>
@@ -1293,20 +1294,34 @@ async function renderAdminAgents() {
   if (!agents.length) { wrap.innerHTML = '<div class="empty-state"><p>No agents detected yet. Install the SDK in an agent and run it — it auto-registers here.</p></div>'; return; }
   const fields = ['name','framework','model','department'];
   const rows = agents.map(a => `<tr>
-      <td style="font-family:var(--font-mono);font-size:11px;min-width:130px">${a.agent_id}
+      <td style="font-family:var(--font-mono);font-size:11px;min-width:140px">${a.agent_id}
+        ${a.enriched ? '' : '<span class="pill pill-amber" style="font-size:9px;margin-left:4px;font-family:var(--font-sans)">needs classification</span>'}
         <div style="color:var(--dim);margin-top:2px">${a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat + 's ago' : '–'}</div></td>
       <td>${statusHTML(effectiveStatus(a))}</td>
       ${fields.map(k => `<td><input class="cd-filter" id="${amId(a.agent_id,k)}" value="${escAttr(a[k]||'')}" style="width:110px"></td>`).join('')}
       <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="adminSaveAgentMeta('${String(a.agent_id).replace(/['"\\]/g,'')}')">Save</button></td>
     </tr>`).join('');
-  wrap.innerHTML = `<table><thead><tr><th>Agent (detected)</th><th>Status</th><th>Display name</th><th>Framework</th><th>LLM / model</th><th>Department</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+  const need = agents.filter(a => !a.enriched).length;
+  const banner = need
+    ? `<div style="font-size:12px;color:var(--amber);margin-bottom:10px">⚠ ${need} agent${need>1?'s':''} need classification — set framework / LLM / department and click Save.</div>`
+    : '<div style="font-size:12px;color:var(--green);margin-bottom:10px">✓ All detected agents are classified.</div>';
+  wrap.innerHTML = banner + `<table><thead><tr><th>Agent (detected)</th><th>Status</th><th>Display name</th><th>Framework</th><th>LLM / model</th><th>Department</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div id="admin-agents-msg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>`;
+  updateAdminBadge(agents);
+}
+
+// Show a count of unclassified agents on the Admin nav item.
+function updateAdminBadge(agents) {
+  const el = document.getElementById('nb-admin'); if (!el) return;
+  const n = (agents || []).filter(a => !a.enriched).length;
+  el.textContent = n; el.style.display = n ? '' : 'none';
 }
 async function adminSaveAgentMeta(id) {
   const g = k => { const el = document.getElementById(amId(id, k)); return el ? el.value.trim() : ''; };
   const body = { name: g('name'), framework: g('framework'), model: g('model'), department: g('department') };
   const r = await apiFetch('/api/admin/agents/' + encodeURIComponent(id) + '/meta', 'POST', body);
-  const msg = document.getElementById('admin-agents-msg'); if (msg) msg.textContent = (r && r.ok) ? ('Saved ' + id) : 'failed to save';
+  if (r && r.ok) { await renderAdminAgents(); const msg = document.getElementById('admin-agents-msg'); if (msg) msg.textContent = 'Saved ' + id; }
+  else { const msg = document.getElementById('admin-agents-msg'); if (msg) msg.textContent = 'failed to save'; }
 }
 
 // Business units + agent↔BU checkbox matrix.
@@ -1395,6 +1410,7 @@ async function loadDashboard() {
   // Role-driven metric cards (replaces the old fixed cards)
   populateTeamSelector();
   renderRoleCards();
+  updateAdminBadge(_agents);   // nudge admins about unclassified agents
 
   const online  = _agents.filter(a => !isOffline(a));
   const offline = _agents.filter(a =>  isOffline(a)).length;

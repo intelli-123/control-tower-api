@@ -464,6 +464,7 @@ function agentsView() {
       department:  o.department || a.department,
       owner:       o.owner      || a.owner || null,
       reported:    { name: a.name, framework: a.framework, model: a.model, department: a.department }, // raw heartbeat values
+      enriched:    !!meta[a.agent_id],   // admin has saved metadata → "classified"
       seconds_since_heartbeat: a.last_heartbeat
         ? Math.floor((Date.now() - new Date(a.last_heartbeat).getTime()) / 1000)
         : null,

@@ -6,6 +6,7 @@
  * All calls are wrapped so a DB problem can never crash the API.
  */
 const path = require('path');
+const fs   = require('fs');
 
 let Database = null;
 try { ({ Database } = require('node-sqlite3-wasm')); }
@@ -14,33 +15,55 @@ catch { console.warn('[db] node-sqlite3-wasm not installed — persistence disab
 const DAY_MS = 24 * 60 * 60 * 1000;
 let db = null;
 
+function openAndMigrate(dbPath) {
+  db = new Database(dbPath);
+  db.run(`CREATE TABLE IF NOT EXISTS executions (
+    id TEXT PRIMARY KEY, agent_id TEXT, task TEXT, started_at TEXT, completed_at TEXT,
+    latency_ms INTEGER, tokens INTEGER, cost REAL, ts INTEGER)`);
+  db.run(`CREATE TABLE IF NOT EXISTS agent_snapshots (
+    agent_id TEXT, ts INTEGER, tokens INTEGER, cost REAL, calls INTEGER,
+    avg_latency_ms INTEGER, status TEXT)`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_exec_agent ON executions(agent_id, ts)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_snap_agent ON agent_snapshots(agent_id, ts)');
+  // ── Admin / RBAC / BU tables ──────────────────────────────────────────────
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY, username TEXT UNIQUE, pass_hash TEXT, pass_salt TEXT,
+    role TEXT, display_name TEXT, department TEXT, created_at TEXT, last_login TEXT)`);
+  try { db.run('ALTER TABLE users ADD COLUMN department TEXT'); } catch { /* already exists */ }
+  db.run(`CREATE TABLE IF NOT EXISTS agent_meta (
+    agent_id TEXT PRIMARY KEY, name TEXT, framework TEXT, model TEXT,
+    department TEXT, owner TEXT, notes TEXT, updated_at TEXT)`);
+  db.run(`CREATE TABLE IF NOT EXISTS business_units (
+    bu_id TEXT PRIMARY KEY, name TEXT, budget REAL, owner TEXT, created_at TEXT)`);
+  db.run(`CREATE TABLE IF NOT EXISTS agent_bu_map (
+    agent_id TEXT, bu_id TEXT, PRIMARY KEY(agent_id, bu_id))`);
+  return db;
+}
+
 function init(dbPath = path.join(__dirname, 'control-tower.db')) {
   if (!Database) return null;
   try {
-    db = new Database(dbPath);
-    db.run(`CREATE TABLE IF NOT EXISTS executions (
-      id TEXT PRIMARY KEY, agent_id TEXT, task TEXT, started_at TEXT, completed_at TEXT,
-      latency_ms INTEGER, tokens INTEGER, cost REAL, ts INTEGER)`);
-    db.run(`CREATE TABLE IF NOT EXISTS agent_snapshots (
-      agent_id TEXT, ts INTEGER, tokens INTEGER, cost REAL, calls INTEGER,
-      avg_latency_ms INTEGER, status TEXT)`);
-    db.run('CREATE INDEX IF NOT EXISTS idx_exec_agent ON executions(agent_id, ts)');
-    db.run('CREATE INDEX IF NOT EXISTS idx_snap_agent ON agent_snapshots(agent_id, ts)');
-    // ── Admin / RBAC / BU tables ──────────────────────────────────────────────
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY, username TEXT UNIQUE, pass_hash TEXT, pass_salt TEXT,
-      role TEXT, display_name TEXT, department TEXT, created_at TEXT, last_login TEXT)`);
-    try { db.run('ALTER TABLE users ADD COLUMN department TEXT'); } catch { /* already exists */ }
-    db.run(`CREATE TABLE IF NOT EXISTS agent_meta (
-      agent_id TEXT PRIMARY KEY, name TEXT, framework TEXT, model TEXT,
-      department TEXT, owner TEXT, notes TEXT, updated_at TEXT)`);
-    db.run(`CREATE TABLE IF NOT EXISTS business_units (
-      bu_id TEXT PRIMARY KEY, name TEXT, budget REAL, owner TEXT, created_at TEXT)`);
-    db.run(`CREATE TABLE IF NOT EXISTS agent_bu_map (
-      agent_id TEXT, bu_id TEXT, PRIMARY KEY(agent_id, bu_id))`);
+    openAndMigrate(dbPath);
     console.log('[db] SQLite (wasm) persistence ready →', dbPath);
     return db;
-  } catch (e) { console.warn('[db] init failed, persistence disabled:', e.message); db = null; return null; }
+  } catch (e) {
+    // node-sqlite3-wasm locks the DB with a `<db>.lock` *directory*. A hard kill
+    // (e.g. closing the launcher window) leaves it behind, which then blocks every
+    // future start with "database is locked". Clear a stale lock and retry once.
+    // (Assumes one tower per DB — run separate instances with their own CT_DB_PATH.)
+    if (/lock/i.test(e.message || '')) {
+      try {
+        fs.rmSync(dbPath + '.lock', { recursive: true, force: true });
+        openAndMigrate(dbPath);
+        console.warn('[db] cleared a stale lock from a previous unclean shutdown — persistence ready →', dbPath);
+        return db;
+      } catch (e2) {
+        console.warn('[db] still locked after clearing stale lock (another instance running on this DB?):', e2.message);
+        db = null; return null;
+      }
+    }
+    console.warn('[db] init failed, persistence disabled:', e.message); db = null; return null;
+  }
 }
 
 function recordExecution(e) {
@@ -166,8 +189,11 @@ function setAgentBUs(agentId, buIds) {
   } catch (e) { console.warn('[db] setAgentBUs:', e.message); }
 }
 
+/** Close the DB so node-sqlite3-wasm releases its `<db>.lock` directory. */
+function close() { if (db) { try { db.close(); } catch { /* ignore */ } db = null; } }
+
 module.exports = {
-  init, recordExecution, snapshotAgents, prune, recentExecutions, executionTotals, costTrend, agentHistory,
+  init, close, recordExecution, snapshotAgents, prune, recentExecutions, executionTotals, costTrend, agentHistory,
   listUsers, getUser, countUsers, upsertUser, setUserLastLogin, deleteUser,
   getAgentMeta, allAgentMeta, setAgentMeta,
   listBUs, upsertBU, deleteBU, getAgentBUs, allAgentBUs, setAgentBUs,

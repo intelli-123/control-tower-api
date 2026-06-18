@@ -7,10 +7,17 @@ Pairs with the Control Tower dashboard UI.
 
 ## Quick start
 
+**Easiest (Windows):** double-click **`run-control-tower.bat`**. It checks for
+Node.js (auto-downloads a portable copy if missing — no admin needed), installs
+dependencies on first run, asks for a **port** (and optional admin password /
+Anthropic key), then starts the server and opens the dashboard in your browser.
+Your answers are remembered for next time.
+
+**Manual:**
 ```bash
 npm install
 node server.js
-# → running on http://localhost:3000
+# → running on http://localhost:3000  (set PORT to change)
 ```
 
 ---

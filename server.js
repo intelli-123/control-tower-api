@@ -1053,4 +1053,9 @@ app.listen(PORT, () => {
   }
 });
 
+// Release the DB lock on a graceful stop (Ctrl+C / kill) so the next start is clean.
+function shutdown() { try { dbStore.close(); } catch { /* ignore */ } process.exit(0); }
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
 module.exports = app;

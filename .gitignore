@@ -10,4 +10,9 @@ npm-debug.log*
 __pycache__/
 *.tgz
 
+# one-click launcher runtime artifacts
+.node/
+.nodetmp/
+ct-launcher.config.bat
+
 improvements.txt

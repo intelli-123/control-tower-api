@@ -99,9 +99,14 @@ export async function startMcpMonitoring({ serverUrl, configPath } = {}) {
       name: s.name, url: s.url, command: s.command, args: s.args || [], env: s.env || {},
       department: s.department, transport: s.transport || 'auto', serverUrl: url, healthIntervalMs,
     });
+    _clients.push(mc);   // track immediately so its heartbeat is stopped on shutdown
     // Fire-and-forget connect so one bad server never blocks the others / the server.
-    mc.connect().then(() => _clients.push(mc))
-      .catch(e => console.error(`[mcp] connect failed ${s.name} (${s.url || [s.command, ...(s.args || [])].join(' ')}): ${e.message}`));
+    // On failure, register it as an OFFLINE agent carrying the reason so the
+    // dashboard surfaces "not active + why" instead of the server vanishing.
+    mc.connect().catch(e => {
+      console.error(`[mcp] connect failed ${s.name} (${s.url || [s.command, ...(s.args || [])].join(' ')}): ${e.message}`);
+      mc.reportConnectFailure(e.message);
+    });
   }
 
   return {

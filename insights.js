@@ -83,11 +83,15 @@ function buildSummary({ agents = [], cost = {}, alerts = [], esc = {}, trend = [
         `Flag ${d.dept} for cost review.`);
   });
 
-  // 3. Offline / silent agents
-  if (offline.length)
-    add('high', `${offline.length} agent${offline.length > 1 ? 's' : ''} offline`,
-      `Not reporting heartbeats: ${offline.slice(0, 5).map(a => a.name || a.agent_id).join(', ')}${offline.length > 5 ? '…' : ''}.`,
-      'Check the host processes/SDK connectivity for these agents.');
+  // 3. Offline / silent agents (include the reason when one was reported)
+  if (offline.length) {
+    const list = offline.slice(0, 5)
+      .map(a => a.current_task ? `${a.name || a.agent_id} (${a.current_task})` : (a.name || a.agent_id))
+      .join('; ');
+    add('high', `${offline.length} agent${offline.length > 1 ? 's' : ''} not active`,
+      `${list}${offline.length > 5 ? '…' : ''}.`,
+      'Check host processes / SDK connectivity (e.g. TLS proxy, bad API key, server down).');
+  }
 
   // 4. Error-state agents
   const errored = online.filter(a => a.status === 'error');

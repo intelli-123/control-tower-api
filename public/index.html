@@ -1418,6 +1418,8 @@ async function loadDashboard() {
                 + ((a.tools||[]).length>4 ? `<span class="tool-chip">+${a.tools.length-4}</span>` : '');
     const hb = a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat+'s ago' : '–';
     const isMcp = a.framework === 'MCP';
+    const st = effectiveStatus(a);
+    const reason = (st==='offline'||st==='error') && a.current_task ? a.current_task : '';
     return `<tr>
       <td style="min-width:140px">
         <div class="agent-name-link" onclick="openAgentDetail('${a.agent_id}')" title="View agent detail">${a.name||a.agent_id}</div>
@@ -1429,7 +1431,7 @@ async function loadDashboard() {
       <td style="font-family:var(--font-mono);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(a.model||'')}">${a.model||'—'}</td>
       <td style="font-size:12px">${a.framework||'—'}</td>
       <td style="max-width:200px">${tools||'<span style="color:var(--dim)">—</span>'}</td>
-      <td>${statusHTML(effectiveStatus(a))}</td>
+      <td>${statusHTML(st)}${reason?`<div style="font-size:10px;color:var(--red);margin-top:3px;max-width:220px;white-space:normal;line-height:1.3" title="${escAttr(reason)}">${reason}</div>`:''}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${fmt(a.totals?.tokens||0)}</td>
       <td style="font-family:var(--font-mono);font-size:12px">$${(a.totals?.cost||0).toFixed(4)}</td>
       <td style="font-size:11px;font-family:var(--font-mono);color:var(--dim)">${hb}</td>

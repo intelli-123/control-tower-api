@@ -164,6 +164,24 @@ export class MonitoredMcpClient {
 
   async listTools() { return this.client.listTools(); }
 
+  /**
+   * Register a server that FAILED to connect as an offline agent in the tower,
+   * carrying the reason — so the dashboard shows "not active" + why, instead of
+   * the server silently never appearing.
+   */
+  async reportConnectFailure(message) {
+    const reason = ('Connect failed: ' + (message || 'unknown error')).slice(0, 300);
+    this._connected = false;
+    this.ct.setStatus('offline', reason);
+    // Keep heartbeating as offline so it stays visible with the reason attached.
+    this.ct.start({ tools: [], getStatus: () => 'offline' });
+    try {
+      await this.ct._post('/api/heartbeat', this.ct._buildPayload({
+        event: 'mcp_connect_failed', eventDetail: reason,
+      }));
+    } catch { /* ignore */ }
+  }
+
   async disconnect() {
     if (this._healthTimer) clearInterval(this._healthTimer);
     this._connected = false;

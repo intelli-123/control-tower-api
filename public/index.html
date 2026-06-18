@@ -384,8 +384,9 @@ nav { padding: 12px 0; flex: 1; }
 }
 .login-input:focus { border-color: var(--accent); }
 .login-btn {
-  border: none; border-radius: 10px; padding: 0 22px; font-size: 14px; font-weight: 600; cursor: pointer;
+  border: none; border-radius: 10px; padding: 11px 30px; font-size: 14px; font-weight: 600; cursor: pointer;
   background: var(--accent); color: #04121a; transition: filter .15s, transform .1s;
+  align-self: center; min-width: 150px; margin-top: 4px;
 }
 .login-btn:hover { filter: brightness(1.08); }
 .login-btn:active { transform: scale(.98); }
@@ -760,7 +761,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
              onkeydown="if(event.key==='Enter')doLogin()" autocomplete="username" autofocus />
       <input type="password" id="login-password" class="login-input" placeholder="Password"
              onkeydown="if(event.key==='Enter')doLogin()" autocomplete="current-password" />
-      <button class="login-btn" id="login-btn" onclick="doLogin()" style="width:100%">Sign in →</button>
+      <button class="login-btn" id="login-btn" onclick="doLogin()">Sign in →</button>
     </div>
     <div class="login-error" id="login-error"></div>
     <div class="login-foot">Your view is determined by your account role · contact your admin for access</div>

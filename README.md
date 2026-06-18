@@ -68,6 +68,21 @@ working with no API key out of the box.
 | `GET` | `/api/audit` | Audit log (filterable by agent) |
 | `GET` | `/api/cost` | Cost attribution per agent + department |
 | `GET` | `/api/health` | Health check |
+| `POST` | `/v1/traces` | **OTLP receiver** — any OpenTelemetry agent exports GenAI traces here (tokens, cost, latency, tool calls); maps `gen_ai.*`/`llm.*` spans onto the agent model. No SDK required. |
+
+---
+
+## Two ways an agent reports in
+
+1. **SDK** (`control-tower-sdk`) — heartbeat + tokens/cost/tools, plus control-plane
+   features (escalations, triggering). Best when you want the agent interactive.
+2. **OpenTelemetry** — point any OTel-instrumented agent at the OTLP receiver:
+   ```bash
+   node --import control-tower-sdk/otel your-app.js   # telemetry + heartbeat, zero app code
+   ```
+   OTel gives tokens/cost/latency/tool-calls/lineage; the bundled preload also starts a
+   heartbeat (OTel alone can't report liveness when an agent is idle). Use the SDK on top
+   only if you also need escalations/triggers.
 
 ---
 

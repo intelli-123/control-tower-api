@@ -27,7 +27,7 @@ const PORT = process.env.PORT || 3090;
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));   // OTLP trace batches can exceed the 100kb default
 app.use(morgan('dev'));
 
 // ─── In-memory store (replace with DB in production) ─────────────────────────
@@ -795,6 +795,109 @@ app.get('/api/cost', (req, res) => res.json(computeCost()));
 app.get('/api/cost/trend', (req, res) => {
   const fromTs = req.query.from ? new Date(req.query.from).getTime() : Date.now() - 24 * 3600 * 1000;
   res.json({ from: fromTs, points: dbStore.costTrend(fromTs || 0), persisted: dbStore.enabled });
+});
+
+// ─── OpenTelemetry (OTLP/HTTP JSON) trace ingest ─────────────────────────────
+// Any OTel-instrumented agent can export GenAI spans here — no SDK required:
+//   OTEL_EXPORTER_OTLP_ENDPOINT=<tower>   →  POST /v1/traces
+// We map gen_ai.* / llm.* span attributes onto the same agent/cost model the
+// dashboard already uses: tokens, cost, latency, tool calls, and tools (lineage).
+// (Liveness still comes from the heartbeat — an idle agent emits no spans.)
+function otlpAttrs(attrs) {
+  const m = {};
+  for (const a of (attrs || [])) {
+    const v = a.value || {};
+    m[a.key] = v.stringValue !== undefined ? v.stringValue
+             : v.intValue   !== undefined ? Number(v.intValue)
+             : v.doubleValue !== undefined ? v.doubleValue
+             : v.boolValue  !== undefined ? v.boolValue
+             : undefined;
+  }
+  return m;
+}
+const otlpPick = (m, keys) => { for (const k of keys) { const v = m[k]; if (v !== undefined && v !== null && v !== '') return v; } return undefined; };
+
+function otlpUpsertAgent(agentId, { name, dept, model }) {
+  const existing = store.agents[agentId] || {};
+  store.agents[agentId] = {
+    ...existing,
+    agent_id:       agentId,
+    name:           existing.name || name || agentId,
+    department:     existing.department || dept || 'Unknown',
+    status:         'ready',
+    framework:      existing.framework || 'OTel',
+    model:          model || existing.model || 'unknown',
+    tools:          existing.tools || [],
+    last_heartbeat: now(),
+    first_seen:     existing.first_seen || now(),
+  };
+  return store.agents[agentId];
+}
+
+function ingestOtlp(body) {
+  let llmSpans = 0, toolSpans = 0; const touched = new Set();
+  for (const rs of (body.resourceSpans || body.resource_spans || [])) {
+    const res = otlpAttrs(rs.resource && rs.resource.attributes);
+    const agentId = otlpPick(res, ['service.name']) || 'otel-agent';
+    const dept = otlpPick(res, ['service.namespace', 'deployment.environment']);
+    for (const ss of (rs.scopeSpans || rs.scope_spans || [])) {
+      for (const sp of (ss.spans || [])) {
+        const a = otlpAttrs(sp.attributes);
+        const model  = otlpPick(a, ['gen_ai.request.model','gen_ai.response.model','llm.model_name','llm.request.model']);
+        const inTok  = Number(otlpPick(a, ['gen_ai.usage.input_tokens','gen_ai.usage.prompt_tokens','llm.token_count.prompt','llm.usage.prompt_tokens']) || 0);
+        const outTok = Number(otlpPick(a, ['gen_ai.usage.output_tokens','gen_ai.usage.completion_tokens','llm.token_count.completion','llm.usage.completion_tokens']) || 0);
+        const op = String(otlpPick(a, ['gen_ai.operation.name','openinference.span.kind','traceloop.span.kind','llm.request.type']) || '').toLowerCase();
+        const toolName = otlpPick(a, ['gen_ai.tool.name','tool.name']);
+        const isTool = !!toolName || op === 'execute_tool' || op === 'tool';
+        const isLlm  = !isTool && (model || inTok || outTok
+          || ['chat','completion','text_completion','generate_content','llm','embeddings'].some(x => op.includes(x))
+          || /llm|chat|completion/i.test(sp.name || ''));
+        if (!isLlm && !isTool) continue;
+
+        const ag = otlpUpsertAgent(agentId, { name: agentId, dept, model });
+        if (isTool && toolName) ag.tools = [...new Set([...(ag.tools || []), String(toolName)])];
+        if (model) ag.model = model;
+
+        // Precise latency / timestamps from nanosecond fields (BigInt-safe).
+        const sNs = sp.startTimeUnixNano || sp.start_time_unix_nano;
+        const eNs = sp.endTimeUnixNano   || sp.end_time_unix_nano;
+        let latency = 0, startedISO = now(), completedISO = now();
+        try {
+          if (sNs && eNs) latency = Math.max(0, Math.round(Number(BigInt(eNs) - BigInt(sNs)) / 1e6));
+          if (sNs) startedISO   = new Date(Number(BigInt(sNs) / 1000000n)).toISOString();
+          if (eNs) completedISO = new Date(Number(BigInt(eNs) / 1000000n)).toISOString();
+        } catch { /* keep defaults */ }
+
+        const tokens = inTok + outTok;
+        const cost = isLlm ? estimateCost(model, inTok, outTok) : 0;
+        const exec = {
+          id: uuidv4(), agent_id: agentId,
+          task: isTool ? `tool:${toolName}` : (sp.name || op || 'llm call'),
+          started_at: startedISO, completed_at: completedISO,
+          latency_ms: latency, tokens, cost: +cost.toFixed(6),
+        };
+        store.executions.unshift(exec);
+        dbStore.recordExecution(exec);
+        if (store.executions.length > 2000) store.executions.pop();
+
+        const prev = ag.totals || store.carryover[agentId] || { tokens: 0, cost: 0, calls: 0 };
+        ag.totals = { tokens: prev.tokens + tokens, cost: prev.cost + cost, calls: prev.calls + 1 };
+
+        addAudit(agentId, isTool ? 'otel_tool_call' : 'otel_llm', exec.task,
+          tokens ? `${tokens} tokens` : null, { model, source: 'otel' });
+        if (isLlm) llmSpans++; else toolSpans++; touched.add(agentId);
+      }
+    }
+  }
+  return { agents: [...touched], llmSpans, toolSpans };
+}
+
+// OTLP receiver. Open (no auth) like the agent-ingestion endpoints. Never fails
+// the exporter — always 200 so a parse hiccup can't back-pressure the agent.
+app.post('/v1/traces', (req, res) => {
+  try { ingestOtlp(req.body || {}); }
+  catch (e) { console.warn('[otel] ingest error:', e.message); }
+  res.status(200).json({ partialSuccess: {} });
 });
 
 // ─── Executive summary (CEO / CTO) ───────────────────────────────────────────

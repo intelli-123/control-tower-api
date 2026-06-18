@@ -6,14 +6,18 @@
   "main": "./controlTower.js",
   "exports": {
     ".": "./controlTower.js",
+    "./otel": "./otel.js",
     "./tokenCounter": "./tokenCounter.js"
   },
-  "files": ["controlTower.js", "tokenCounter.js", "README.md"],
+  "files": ["controlTower.js", "otel.js", "tokenCounter.js", "README.md"],
   "engines": { "node": ">=18" },
-  "keywords": ["agent", "observability", "control-tower", "llm", "monitoring"],
+  "keywords": ["agent", "observability", "control-tower", "llm", "monitoring", "opentelemetry"],
   "license": "MIT",
   "optionalDependencies": {
     "@langchain/core": "^1.0.0",
-    "llama3-tokenizer-js": "^1.2.0"
+    "llama3-tokenizer-js": "^1.2.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.55.0"
   }
 }

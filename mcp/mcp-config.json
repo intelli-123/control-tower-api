@@ -1,8 +1,6 @@
 {
-  "_comment": "Auto-loaded by the Control Tower on startup. 'discoverHosts' imports MCPs from installed hosts (Claude, Cursor, VS Code, Windsurf, Cline, Claude Code) for the current OS. 'servers' adds explicit ones. Disable monitoring with env CT_MONITOR_MCP=off; point elsewhere with CT_MCP_CONFIG. Behind a TLS-proxy, start the server with NODE_TLS_REJECT_UNAUTHORIZED=0.",
+  "_comment": "Auto-loaded by the Control Tower on startup. 'discoverHosts' imports MCPs dynamically from installed hosts (Claude, Cursor, VS Code, Windsurf, Cline, Claude Code) for the current OS — including each server's own env (e.g. NODE_TLS_REJECT_UNAUTHORIZED), so they connect exactly as the host runs them. Add static servers under 'servers' only if you want to hardcode one. Disable monitoring with env CT_MONITOR_MCP=off; point elsewhere with CT_MCP_CONFIG.",
   "discoverHosts": "all",
   "healthIntervalMs": 15000,
-  "servers": [
-    { "name": "gitmcp", "url": "https://gitmcp.io/intelli-123/observability_copilot", "transport": "auto" }
-  ]
+  "servers": []
 }

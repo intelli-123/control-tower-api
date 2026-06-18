@@ -96,9 +96,13 @@ function verifyPassword(password, hash, salt) {
 // In-memory session tokens (cleared on restart → users re-login).
 const SESSIONS = new Map();   // token -> { username, role, displayName, exp }
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+/** Parse the comma-separated departments column into an array. */
+const splitDepts = s => (s ? String(s).split(',').map(x => x.trim()).filter(Boolean) : []);
+
 function issueToken(user) {
   const token = crypto.randomUUID();
-  SESSIONS.set(token, { username: user.username, role: user.role, displayName: user.display_name || user.username, department: user.department || null, exp: Date.now() + SESSION_TTL_MS });
+  SESSIONS.set(token, { username: user.username, role: user.role, displayName: user.display_name || user.username,
+    department: user.department || null, departments: splitDepts(user.departments), exp: Date.now() + SESSION_TTL_MS });
   return token;
 }
 function sessionFor(req) {
@@ -281,7 +285,7 @@ app.post('/api/login', (req, res) => {
   if (u && verifyPassword(password, u.pass_hash, u.pass_salt)) {
     const token = issueToken(u);
     dbStore.setUserLastLogin(u.id, now());
-    return res.json({ ok: true, token, role: u.role, displayName: u.display_name || u.username, department: u.department || null });
+    return res.json({ ok: true, token, role: u.role, displayName: u.display_name || u.username, department: u.department || null, departments: splitDepts(u.departments) });
   }
   return res.status(401).json({ ok: false, error: 'Invalid username or password' });
 });
@@ -295,7 +299,7 @@ app.post('/api/logout', (req, res) => {
 
 /** GET /api/me — current session info (used by the UI to restore role). */
 app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ username: req.user.username, role: req.user.role, displayName: req.user.displayName, department: req.user.department || null });
+  res.json({ username: req.user.username, role: req.user.role, displayName: req.user.displayName, department: req.user.department || null, departments: req.user.departments || [] });
 });
 
 /**
@@ -989,13 +993,16 @@ app.get('/api/admin/users', (req, res) => {
 });
 
 app.post('/api/admin/users', (req, res) => {
-  const { username, password, role, display_name, department } = req.body || {};
+  const { username, password, role, display_name, department, departments } = req.body || {};
   const uname = (username || '').trim();
   if (!uname || !password || !role) return res.status(400).json({ error: 'username, password and role are required' });
   if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: `invalid role (allowed: ${VALID_ROLES.join(', ')})` });
   if (dbStore.getUser(uname)) return res.status(409).json({ error: 'username already exists' });
+  const deptList = Array.isArray(departments) ? departments.map(d => String(d).trim()).filter(Boolean)
+                 : (department ? [String(department).trim()] : []);
   const { hash, salt } = hashPassword(password);
-  dbStore.upsertUser({ id: crypto.randomUUID(), username: uname, pass_hash: hash, pass_salt: salt, role, display_name: display_name || uname, department: department || null });
+  dbStore.upsertUser({ id: crypto.randomUUID(), username: uname, pass_hash: hash, pass_salt: salt, role,
+    display_name: display_name || uname, department: deptList[0] || null, departments: deptList.join(',') });
   res.status(201).json({ ok: true });
 });
 

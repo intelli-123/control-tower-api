@@ -30,6 +30,7 @@ function openAndMigrate(dbPath) {
     id TEXT PRIMARY KEY, username TEXT UNIQUE, pass_hash TEXT, pass_salt TEXT,
     role TEXT, display_name TEXT, department TEXT, created_at TEXT, last_login TEXT)`);
   try { db.run('ALTER TABLE users ADD COLUMN department TEXT'); } catch { /* already exists */ }
+  try { db.run('ALTER TABLE users ADD COLUMN departments TEXT'); } catch { /* already exists */ }  // comma-separated list
   db.run(`CREATE TABLE IF NOT EXISTS agent_meta (
     agent_id TEXT PRIMARY KEY, name TEXT, framework TEXT, model TEXT,
     department TEXT, owner TEXT, notes TEXT, updated_at TEXT)`);
@@ -134,19 +135,19 @@ function agentHistory(agentId, fromTs = 0) {
 }
 
 // ── Users / stakeholders ──────────────────────────────────────────────────────
-function listUsers() { if (!db) return []; try { return db.all('SELECT id,username,role,display_name,department,created_at,last_login FROM users ORDER BY username'); } catch { return []; } }
+function listUsers() { if (!db) return []; try { return db.all('SELECT id,username,role,display_name,department,departments,created_at,last_login FROM users ORDER BY username'); } catch { return []; } }
 function getUser(username) { if (!db) return null; try { return db.get('SELECT * FROM users WHERE username=?', [username]); } catch { return null; } }
 function countUsers() { if (!db) return 0; try { return (db.get('SELECT COUNT(*) AS n FROM users') || {}).n || 0; } catch { return 0; } }
 function upsertUser(u) {
   if (!db) return;
   try {
-    db.run(`INSERT INTO users(id,username,pass_hash,pass_salt,role,display_name,department,created_at,last_login)
-      VALUES(?,?,?,?,?,?,?,?,?)
+    db.run(`INSERT INTO users(id,username,pass_hash,pass_salt,role,display_name,department,departments,created_at,last_login)
+      VALUES(?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET username=excluded.username, pass_hash=excluded.pass_hash,
         pass_salt=excluded.pass_salt, role=excluded.role, display_name=excluded.display_name,
-        department=excluded.department`,
+        department=excluded.department, departments=excluded.departments`,
       [u.id, u.username, u.pass_hash, u.pass_salt, u.role, u.display_name || u.username,
-       u.department || null, u.created_at || new Date().toISOString(), u.last_login || null]);
+       u.department || null, u.departments || null, u.created_at || new Date().toISOString(), u.last_login || null]);
   } catch (e) { console.warn('[db] upsertUser:', e.message); }
 }
 function setUserLastLogin(id, ts) { if (!db) return; try { db.run('UPDATE users SET last_login=? WHERE id=?', [ts, id]); } catch { /* ignore */ } }

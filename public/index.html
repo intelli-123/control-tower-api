@@ -346,7 +346,7 @@ nav { padding: 12px 0; flex: 1; }
 }
 @keyframes loginFloat { from { transform: translate(-30px,-10px) scale(1); } to { transform: translate(40px,30px) scale(1.1); } }
 .login-box {
-  position: relative; z-index: 1; width: 100%; max-width: 420px;
+  position: relative; z-index: 1; width: 100%; max-width: 400px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   border: 1px solid var(--border2); border-radius: 16px; padding: 28px 26px;
@@ -1006,7 +1006,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
 
         <div class="section-head" style="margin-top:20px"><div class="section-title">Agents &amp; MCP servers</div>
           <span class="pill pill-blue" style="font-size:10px">detected from heartbeats</span></div>
-        <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Set each agent's / MCP's department, owner, model and framework — overrides what the SDK reports.</div>
+        <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Set each agent's / MCP's display name, framework, model and department, then click Save — overrides what the SDK reports.</div>
         <div class="table-card" id="admin-agents" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
       </div>
 
@@ -1232,39 +1232,45 @@ async function loadAdmin() {
 }
 
 async function renderAdminUsers() {
-  const data = await apiFetch('/api/admin/users');
+  const [data, adata] = await Promise.all([apiFetch('/api/admin/users'), apiFetch('/api/agents')]);
   const users = data?.users || [];
+  const depts = [...new Set((adata?.agents||[]).map(a => a.department || 'Unknown'))].sort();
   const roleOpts = ['admin','cto','bu','lead','finops','sec','sre','ceo']
     .map(r => `<option value="${r}">${(ROLE_CONFIG[r]?.label) || r}</option>`).join('');
+  const deptBoxes = depts.length
+    ? depts.map(d => `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;margin:0 10px 6px 0"><input type="checkbox" class="nu-dept-cb" value="${escAttr(d)}"> ${d}</label>`).join('')
+    : '<span style="color:var(--dim);font-size:12px">No departments detected yet (they appear once agents / MCPs report in).</span>';
+  const deptsOf = u => { const a = String(u.departments || u.department || '').split(',').map(x=>x.trim()).filter(Boolean); return a.length ? a.join(', ') : '—'; };
   const rows = users.map(u => `<tr>
       <td>${u.display_name || u.username}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${u.username}</td>
       <td><span class="pill pill-blue" style="font-size:10px">${(ROLE_CONFIG[u.role]?.label) || u.role}</span></td>
-      <td style="font-size:12px">${u.department || '—'}</td>
+      <td style="font-size:12px">${deptsOf(u)}</td>
       <td style="font-family:var(--font-mono);font-size:11px;color:var(--dim)">${u.last_login ? ago(u.last_login) : 'never'}</td>
       <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="adminDeleteUser('${u.id}','${(u.username||'').replace(/['"\\]/g,'')}')">Remove</button></td>
     </tr>`).join('');
   document.getElementById('admin-users').innerHTML = `
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <input class="cd-filter" id="nu-username" placeholder="username" style="width:120px">
       <input class="cd-filter" id="nu-display" placeholder="display name" style="width:140px">
       <input class="cd-filter" id="nu-password" type="password" placeholder="password" style="width:130px">
       <select class="cd-filter" id="nu-role">${roleOpts}</select>
-      <input class="cd-filter" id="nu-dept" placeholder="department" style="width:130px">
       <button class="btn btn-primary" onclick="adminAddUser()" style="font-size:12px">+ Add stakeholder</button>
       <span id="admin-users-msg" style="font-size:12px;color:var(--muted)"></span>
     </div>
+    <div style="margin-bottom:14px"><span style="font-size:11px;color:var(--muted);margin-right:6px">Departments (select one or more):</span>${deptBoxes}</div>
     ${users.length
-      ? `<table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Department</th><th>Last login</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Departments</th><th>Last login</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : '<div class="empty-state"><p>No stakeholders yet — add one above.</p></div>'}`;
 }
 
 async function adminAddUser() {
   const msg = document.getElementById('admin-users-msg');
-  const username = val('nu-username'), display = val('nu-display'), password = val('nu-password'), role = val('nu-role'), department = val('nu-dept');
+  const username = val('nu-username'), display = val('nu-display'), password = val('nu-password'), role = val('nu-role');
+  const departments = [...document.querySelectorAll('.nu-dept-cb:checked')].map(cb => cb.value);
   if (!username || !password) { msg.textContent = 'username & password required'; return; }
   msg.textContent = 'adding…';
-  const r = await apiFetch('/api/admin/users', 'POST', { username, password, role, display_name: display, department });
+  const r = await apiFetch('/api/admin/users', 'POST', { username, password, role, display_name: display, departments });
   if (r && r.ok) renderAdminUsers();
   else msg.textContent = (r && r.error) ? r.error : 'failed';
 }
@@ -1284,7 +1290,7 @@ async function renderAdminAgents() {
   const agents = data?.agents || [];
   const wrap = document.getElementById('admin-agents');
   if (!agents.length) { wrap.innerHTML = '<div class="empty-state"><p>No agents detected yet. Install the SDK in an agent and run it — it auto-registers here.</p></div>'; return; }
-  const fields = ['name','framework','model','department','owner'];
+  const fields = ['name','framework','model','department'];
   const rows = agents.map(a => `<tr>
       <td style="font-family:var(--font-mono);font-size:11px;min-width:130px">${a.agent_id}
         <div style="color:var(--dim);margin-top:2px">${a.seconds_since_heartbeat != null ? a.seconds_since_heartbeat + 's ago' : '–'}</div></td>
@@ -1292,12 +1298,12 @@ async function renderAdminAgents() {
       ${fields.map(k => `<td><input class="cd-filter" id="${amId(a.agent_id,k)}" value="${escAttr(a[k]||'')}" style="width:110px"></td>`).join('')}
       <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="adminSaveAgentMeta('${String(a.agent_id).replace(/['"\\]/g,'')}')">Save</button></td>
     </tr>`).join('');
-  wrap.innerHTML = `<table><thead><tr><th>Agent (detected)</th><th>Status</th><th>Display name</th><th>Framework</th><th>LLM / model</th><th>Department</th><th>Owner</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+  wrap.innerHTML = `<table><thead><tr><th>Agent (detected)</th><th>Status</th><th>Display name</th><th>Framework</th><th>LLM / model</th><th>Department</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div id="admin-agents-msg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>`;
 }
 async function adminSaveAgentMeta(id) {
   const g = k => { const el = document.getElementById(amId(id, k)); return el ? el.value.trim() : ''; };
-  const body = { name: g('name'), framework: g('framework'), model: g('model'), department: g('department'), owner: g('owner') };
+  const body = { name: g('name'), framework: g('framework'), model: g('model'), department: g('department') };
   const r = await apiFetch('/api/admin/agents/' + encodeURIComponent(id) + '/meta', 'POST', body);
   const msg = document.getElementById('admin-agents-msg'); if (msg) msg.textContent = (r && r.ok) ? ('Saved ' + id) : 'failed to save';
 }
@@ -1405,14 +1411,15 @@ async function loadDashboard() {
     else             { ts.className = 'pill pill-green'; ts.textContent = 'all healthy'; }
   }
 
-  if (!_agents.length) {
+  const list = teamAgents();   // scoped to the user's departments (team roles); all otherwise
+  if (!list.length) {
     document.getElementById('agents-table-wrap').innerHTML =
-      `<div class="empty-state"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><p>No agents reporting yet.<br>Start your agents with the heartbeat SDK to see them here.</p></div>`;
+      `<div class="empty-state"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><p>${_agents.length ? 'No agents in your department(s) yet.' : 'No agents reporting yet.<br>Start your agents with the heartbeat SDK to see them here.'}</p></div>`;
     return;
   }
 
-  const maxTk = Math.max(..._agents.map(a=>a.totals?.tokens||0), 1);
-  const rows = _agents.map(a => {
+  const maxTk = Math.max(...list.map(a=>a.totals?.tokens||0), 1);
+  const rows = list.map(a => {
     const util  = Math.min(100, Math.round(((a.totals?.tokens||0)/maxTk)*100));
     const tools = (a.tools||[]).slice(0,4).map(t=>`<span class="tool-chip">${t}</span>`).join('')
                 + ((a.tools||[]).length>4 ? `<span class="tool-chip">+${a.tools.length-4}</span>` : '');
@@ -1973,6 +1980,7 @@ let _esc = { pending: [], resolved: [] };
 let _overallLatency = 0;
 let _role = null;
 let _team = '';   // selected team — a BU id (bu mode) or department name (dept mode)
+let _userDepts = [];   // departments assigned to the logged-in user (multi-select)
 let _teamMode = 'dept';
 let _teamLabels = {};   // value -> display label
 const teamLabel = () => _teamLabels[_team] || _team;
@@ -2005,8 +2013,17 @@ const ROLE_CONFIG = {
             nav:['charts','lineage','alerts'], charts:['latency_by_agent','alerts_by_type'] },
 };
 
+// Departments the current user is limited to ([] = org-wide). Only team-scoped
+// roles (bu, lead) are restricted to their assigned departments.
+function userScope() {
+  const cfg = ROLE_CONFIG[_role] || {};
+  return (cfg.teamScoped && _userDepts.length) ? _userDepts : [];
+}
 function teamAgents() {
-  return _team ? _agents.filter(a => (a.department || 'Unknown') === _team) : _agents;
+  const scope = userScope();
+  let list = scope.length ? _agents.filter(a => scope.includes(a.department || 'Unknown')) : _agents;
+  if (_team) list = list.filter(a => (a.department || 'Unknown') === _team);   // narrow to one
+  return list;
 }
 function avgErrorRate(list) { const xs=list.map(a=>a.metrics?.error_rate||0); return xs.length?xs.reduce((s,v)=>s+v,0)/xs.length:0; }
 function highAlerts() { return _alerts.filter(a => a.severity === 'high'); }
@@ -2020,7 +2037,15 @@ const CARD_DEFS = {
   error_rate: () => { const r=avgErrorRate(_agents.filter(a=>!isOffline(a))); return {label:'Overall error rate', value:(r*100).toFixed(1)+'%', tone:r>0.15?'tone-bad':r>0.05?'tone-warn':'tone-ok', sub:'avg across agents'}; },
   serious_issues: () => { const n=highAlerts().length; return {label:'Serious issues', value:n, tone:n?'tone-bad':'tone-ok', sub:'high-severity alerts'}; },
 
-  team_cost_vs_budget: () => { const d=(_cost?.by_department||{})[_team]||{}, p=d.pct; return {label:`Team cost vs budget${_team?` · ${_team}`:''}`, value:`${fmtCost(d.cost||0)} / ${d.budget!=null?fmtCost(d.budget):'—'}`, tone:budgetTone(p), sub:(p!=null?`${p}% used`:'no budget set')+budgetBar(p)}; },
+  team_cost_vs_budget: () => {
+    const byd=_cost?.by_department||{};
+    const scope = _team ? [_team] : (userScope().length ? userScope() : Object.keys(byd));
+    let cost=0, budget=0, hasBudget=false;
+    scope.forEach(d => { const x=byd[d]; if(x){ cost+=x.cost||0; if(x.budget!=null){ budget+=x.budget; hasBudget=true; } } });
+    const p = (hasBudget && budget>0) ? Math.round(cost/budget*100) : null;
+    const lbl = _team ? ` · ${_team}` : (userScope().length ? ' · my depts' : '');
+    return {label:`Team cost vs budget${lbl}`, value:`${fmtCost(cost)} / ${hasBudget?fmtCost(budget):'—'}`, tone:budgetTone(p), sub:(p!=null?`${p}% used`:'no budget set')+budgetBar(p)};
+  },
   work_done: () => ({label:'Work done', value:fmt(teamAgents().reduce((s,a)=>s+(a.executions_count||0),0)), sub:'requests completed'}),
   team_error_rate: () => { const r=avgErrorRate(teamAgents()); return {label:'Team error rate', value:(r*100).toFixed(1)+'%', tone:r>0.15?'tone-bad':r>0.05?'tone-warn':'tone-ok', sub:teamLabel()||'all teams'}; },
   approvals_waiting: () => { const n=(_esc.pending||[]).length; return {label:'Approvals waiting', value:n, tone:n?'tone-warn':'tone-ok', sub:'pending escalations'}; },
@@ -2060,12 +2085,11 @@ function populateTeamSelector() {
   if (!cfg || !wrap || !sel) return;
   if (!cfg.teamScoped) { wrap.style.display='none'; return; }
   wrap.style.display='flex';
-  // Scope by department. Default to the logged-in stakeholder's department.
-  let userDept=''; try { userDept = localStorage.getItem('ct-dept') || ''; } catch (e) {}
-  const depts = [...new Set(_agents.map(a => a.department || 'Unknown'))].sort();
-  if (userDept && !depts.includes(userDept)) depts.unshift(userDept);   // show even before agents report
-  if (!_team) _team = (userDept && depts.includes(userDept)) ? userDept : (depts[0] || '');
-  sel.innerHTML = depts.map(d => `<option ${d===_team?'selected':''}>${d}</option>`).join('');
+  // Scope to the user's assigned departments; "All my departments" shows the union.
+  const mine = _userDepts.length ? _userDepts : [...new Set(_agents.map(a => a.department || 'Unknown'))].sort();
+  if (_team && !mine.includes(_team)) _team = '';
+  sel.innerHTML = `<option value=""${_team===''?' selected':''}>All my departments</option>` +
+    mine.map(d => `<option ${d===_team?'selected':''}>${d}</option>`).join('');
 }
 function onTeamChange() { _team=document.getElementById('team-selector').value; renderRoleCards(); if (_currentPanel==='charts') renderCharts(); }
 
@@ -2083,6 +2107,7 @@ async function doLogin() {
       localStorage.setItem('ct-role', r.role);
       localStorage.setItem('ct-user', r.displayName || username);
       localStorage.setItem('ct-dept', r.department || '');
+      localStorage.setItem('ct-depts', JSON.stringify(r.departments || []));
     } catch (e) {}
     err.textContent = '';
     document.getElementById('login-password').value = '';
@@ -2093,9 +2118,9 @@ async function doLogin() {
   }
 }
 function logout() {
-  _role = null;
+  _role = null; _userDepts = []; _team = '';
   apiFetch('/api/logout', 'POST');   // best-effort server-side invalidation
-  try { localStorage.removeItem('ct-token'); localStorage.removeItem('ct-role'); localStorage.removeItem('ct-user'); } catch (e) {}
+  try { ['ct-token','ct-role','ct-user','ct-dept','ct-depts'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
   const pw = document.getElementById('login-password'); if (pw) pw.value = '';
   document.getElementById('login-screen').classList.add('show');
 }
@@ -2103,6 +2128,7 @@ function logout() {
 function applyRole(role) {
   const cfg=ROLE_CONFIG[role]; if (!cfg) { logout(); return; }
   _role=role;
+  try { _userDepts = JSON.parse(localStorage.getItem('ct-depts') || '[]') || []; } catch (e) { _userDepts = []; }
   document.getElementById('login-screen').classList.remove('show');
   document.getElementById('top-role').textContent=cfg.label;
   const allow=new Set(['dashboard', ...cfg.nav]);
@@ -2330,7 +2356,7 @@ async function init() {
   let me = null;
   if (token) me = await apiFetch('/api/me');   // 401 → onSessionExpired() shows login
   if (me && me.role && ROLE_CONFIG[me.role]) {
-    try { localStorage.setItem('ct-role', me.role); localStorage.setItem('ct-user', me.displayName || me.username); localStorage.setItem('ct-dept', me.department || ''); } catch (e) {}
+    try { localStorage.setItem('ct-role', me.role); localStorage.setItem('ct-user', me.displayName || me.username); localStorage.setItem('ct-dept', me.department || ''); localStorage.setItem('ct-depts', JSON.stringify(me.departments || [])); } catch (e) {}
     applyRole(me.role);
   } else {
     document.getElementById('login-screen').classList.add('show');

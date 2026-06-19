@@ -1151,14 +1151,19 @@ const maskKey = k => (k && k.length > 4) ? '••••' + k.slice(-4) : (k || 
 // Connect (validate by listing agents, then store encrypted).
 app.post('/api/admin/bedrock/accounts', async (req, res) => {
   const { label, region, accessKeyId, secretAccessKey, sessionToken } = req.body || {};
-  if (!accessKeyId || !secretAccessKey) return res.status(400).json({ error: 'accessKeyId and secretAccessKey are required' });
+  // Trim — pasted creds often carry a trailing space/newline, which corrupts the
+  // SigV4 Authorization header (AWS: "IncompleteSignatureException … missing equal-sign").
+  const akid   = (accessKeyId || '').trim();
+  const secret = (secretAccessKey || '').trim();
+  const token  = (sessionToken || '').trim() || undefined;
+  if (!akid || !secret) return res.status(400).json({ error: 'accessKeyId and secretAccessKey are required' });
   const reg = (region || 'us-east-1').trim();
   try {
-    const agents = await bedrock.listAgents({ region: reg, accessKeyId, secretAccessKey, sessionToken });
+    const agents = await bedrock.listAgents({ region: reg, accessKeyId: akid, secretAccessKey: secret, sessionToken: token });
     const id = crypto.randomUUID();
     dbStore.upsertBedrockAccount({
-      id, label: (label || `AWS ${reg}`).trim(), region: reg, access_key_id: accessKeyId,
-      secret_enc: secrets.encrypt(secretAccessKey), token_enc: secrets.encrypt(sessionToken),
+      id, label: (label || `AWS ${reg}`).trim(), region: reg, access_key_id: akid,
+      secret_enc: secrets.encrypt(secret), token_enc: secrets.encrypt(token),
       created_at: now(), last_sync: now(), agent_count: agents.length,
     });
     res.status(201).json({ ok: true, id, agent_count: agents.length });

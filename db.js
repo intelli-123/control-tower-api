@@ -38,6 +38,9 @@ function openAndMigrate(dbPath) {
     bu_id TEXT PRIMARY KEY, name TEXT, budget REAL, owner TEXT, created_at TEXT)`);
   db.run(`CREATE TABLE IF NOT EXISTS agent_bu_map (
     agent_id TEXT, bu_id TEXT, PRIMARY KEY(agent_id, bu_id))`);
+  db.run(`CREATE TABLE IF NOT EXISTS bedrock_accounts (
+    id TEXT PRIMARY KEY, label TEXT, region TEXT, access_key_id TEXT,
+    secret_enc TEXT, token_enc TEXT, created_at TEXT, last_sync TEXT, agent_count INTEGER)`);
   return db;
 }
 
@@ -190,6 +193,24 @@ function setAgentBUs(agentId, buIds) {
   } catch (e) { console.warn('[db] setAgentBUs:', e.message); }
 }
 
+// ── Bedrock (AWS) cloud accounts — secrets stored encrypted by secrets.js ───────
+function listBedrockAccounts() { if (!db) return []; try { return db.all('SELECT id,label,region,access_key_id,created_at,last_sync,agent_count FROM bedrock_accounts ORDER BY created_at'); } catch { return []; } }
+function getBedrockAccount(id) { if (!db) return null; try { return db.get('SELECT * FROM bedrock_accounts WHERE id=?', [id]); } catch { return null; } }
+function allBedrockAccounts() { if (!db) return []; try { return db.all('SELECT * FROM bedrock_accounts'); } catch { return []; } }
+function upsertBedrockAccount(a) {
+  if (!db) return;
+  try {
+    db.run(`INSERT INTO bedrock_accounts(id,label,region,access_key_id,secret_enc,token_enc,created_at,last_sync,agent_count)
+      VALUES(?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET label=excluded.label, region=excluded.region, access_key_id=excluded.access_key_id,
+        secret_enc=excluded.secret_enc, token_enc=excluded.token_enc, last_sync=excluded.last_sync, agent_count=excluded.agent_count`,
+      [a.id, a.label, a.region, a.access_key_id, a.secret_enc, a.token_enc || null,
+       a.created_at || new Date().toISOString(), a.last_sync || null, a.agent_count != null ? a.agent_count : null]);
+  } catch (e) { console.warn('[db] upsertBedrockAccount:', e.message); }
+}
+function setBedrockSync(id, agentCount, ts) { if (!db) return; try { db.run('UPDATE bedrock_accounts SET agent_count=?, last_sync=? WHERE id=?', [agentCount, ts, id]); } catch { /* ignore */ } }
+function deleteBedrockAccount(id) { if (!db) return; try { db.run('DELETE FROM bedrock_accounts WHERE id=?', [id]); } catch { /* ignore */ } }
+
 /** Close the DB so node-sqlite3-wasm releases its `<db>.lock` directory. */
 function close() { if (db) { try { db.close(); } catch { /* ignore */ } db = null; } }
 
@@ -198,5 +219,6 @@ module.exports = {
   listUsers, getUser, countUsers, upsertUser, setUserLastLogin, deleteUser,
   getAgentMeta, allAgentMeta, setAgentMeta,
   listBUs, upsertBU, deleteBU, getAgentBUs, allAgentBUs, setAgentBUs,
+  listBedrockAccounts, getBedrockAccount, allBedrockAccounts, upsertBedrockAccount, setBedrockSync, deleteBedrockAccount,
   get enabled() { return !!db; },
 };

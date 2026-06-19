@@ -1010,6 +1010,11 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
           <span class="pill pill-blue" style="font-size:10px">detected from heartbeats</span></div>
         <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Set each agent's / MCP's display name, framework, model and department, then click Save — overrides what the SDK reports.</div>
         <div class="table-card" id="admin-agents" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
+
+        <div class="section-head" style="margin-top:20px"><div class="section-title">Cloud agents — AWS Bedrock</div>
+          <button class="btn btn-primary" style="font-size:12px" onclick="openBedrockModal()">+ Connect AWS account</button></div>
+        <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Connect an AWS account to discover its Bedrock agents. Credentials are stored encrypted; only the agent inventory is read (ListAgents).</div>
+        <div class="table-card" id="admin-bedrock" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
       </div>
 
     </div><!-- /content -->
@@ -1072,6 +1077,28 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
     <div class="modal-body">
       <div id="cd-filters" style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
       <div id="cd-content"><div class="loading"><div class="spin"></div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Connect AWS Bedrock account modal -->
+<div class="modal-overlay" id="bedrock-modal" onclick="if(event.target===this)closeBedrockModal()">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head">
+      <div class="modal-title">Connect AWS account (Bedrock)</div>
+      <button class="modal-close" onclick="closeBedrockModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <input class="login-input" id="bd-label" placeholder="Label (e.g. Prod / Team A)">
+        <input class="login-input" id="bd-region" placeholder="Region" value="us-east-1">
+        <input class="login-input" id="bd-key" placeholder="Access key ID" autocomplete="off">
+        <input class="login-input" id="bd-secret" type="password" placeholder="Secret access key" autocomplete="off">
+        <input class="login-input" id="bd-token" type="password" placeholder="Session token (optional)" autocomplete="off">
+        <div style="font-size:11px;color:var(--muted)">Read-only access is enough — the IAM principal needs <code>bedrock:ListAgents</code>. Stored encrypted.</div>
+        <div id="bd-msg" style="font-size:12px;color:var(--red);min-height:16px"></div>
+        <button class="btn btn-primary" id="bd-connect-btn" onclick="bedrockConnect()" style="align-self:flex-start">Connect &amp; discover</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1231,6 +1258,66 @@ function loadPanel(name) {
 async function loadAdmin() {
   await renderAdminUsers();
   renderAdminAgents();   // agents: set department + owner (incl. MCP)
+  renderBedrock();       // cloud agents: AWS Bedrock accounts + discovered agents
+}
+
+// ── AWS Bedrock cloud accounts ──────────────────────────────────────────────
+function openBedrockModal() {
+  ['bd-label','bd-key','bd-secret','bd-token'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const r=document.getElementById('bd-region'); if(r) r.value='us-east-1';
+  const m=document.getElementById('bd-msg'); if(m) m.textContent='';
+  document.getElementById('bedrock-modal').classList.add('open');
+  document.body.classList.add('modal-open');
+}
+function closeBedrockModal() {
+  document.getElementById('bedrock-modal').classList.remove('open');
+  document.body.classList.remove('modal-open');
+}
+async function bedrockConnect() {
+  const msg=document.getElementById('bd-msg'), btn=document.getElementById('bd-connect-btn');
+  const body={ label:val('bd-label'), region:val('bd-region'), accessKeyId:val('bd-key'), secretAccessKey:val('bd-secret'), sessionToken:val('bd-token') };
+  if(!body.accessKeyId || !body.secretAccessKey){ msg.textContent='Access key ID and secret are required.'; return; }
+  msg.style.color='var(--muted)'; msg.textContent='Connecting & discovering agents…'; btn.disabled=true;
+  const r=await apiFetch('/api/admin/bedrock/accounts','POST',body);
+  btn.disabled=false;
+  if(r && r.ok){ closeBedrockModal(); renderBedrock(); }
+  else { msg.style.color='var(--red)'; msg.textContent=(r && r.error) ? r.error : 'Failed to connect.'; }
+}
+async function bedrockDelete(id, label){
+  if(!confirm('Disconnect AWS account "'+label+'"? Stored credentials will be deleted.')) return;
+  await apiFetch('/api/admin/bedrock/accounts/'+encodeURIComponent(id),'DELETE');
+  renderBedrock();
+}
+async function renderBedrock() {
+  const wrap=document.getElementById('admin-bedrock'); if(!wrap) return;
+  const [acctData, agentData] = await Promise.all([apiFetch('/api/admin/bedrock/accounts'), apiFetch('/api/admin/bedrock/agents')]);
+  const accounts=acctData?.accounts||[], data=agentData||{agents:[],errors:[]};
+  if(!accounts.length){ wrap.innerHTML='<div class="empty-state"><p>No AWS accounts connected yet. Click “Connect AWS account” to discover Bedrock agents.</p></div>'; return; }
+  const stColor=s=>s==='PREPARED'?'pill-green':(s==='FAILED'?'pill-red':'pill-amber');
+  const summary=`<div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+    <b style="color:var(--text)">${accounts.length}</b> account${accounts.length>1?'s':''} connected ·
+    <b style="color:var(--text)">${data.total||0}</b> Bedrock agents ·
+    <b style="color:var(--green)">${data.running||0}</b> prepared</div>`;
+  const acctRows=accounts.map(a=>`<tr>
+      <td>${a.label}</td><td style="font-size:12px">${a.region}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${a.access_key_id}</td>
+      <td style="font-size:12px">${a.agent_count!=null?a.agent_count:'–'}</td>
+      <td style="font-size:11px;color:var(--dim)">${a.last_sync?ago(a.last_sync):'never'}</td>
+      <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="bedrockDelete('${a.id}','${(a.label||'').replace(/['"\\]/g,'')}')">Disconnect</button></td>
+    </tr>`).join('');
+  const agentRows=(data.agents||[]).map(a=>`<tr>
+      <td>${a.agentName||a.agentId}</td>
+      <td><span class="pill ${stColor(a.status)}" style="font-size:10px">${a.status||'—'}</span></td>
+      <td style="font-family:var(--font-mono);font-size:11px">${a.agentId}</td>
+      <td style="font-size:12px">${a.account_label} · ${a.region}</td>
+      <td style="font-size:11px;color:var(--dim)">${a.updatedAt?ago(a.updatedAt):'–'}</td>
+    </tr>`).join('');
+  const errHtml=(data.errors||[]).length?`<div style="font-size:11px;color:var(--red);margin-top:8px">⚠ ${data.errors.map(e=>e.account+': '+e.error).join(' · ')}</div>`:'';
+  wrap.innerHTML = summary +
+    `<table><thead><tr><th>Account</th><th>Region</th><th>Access key</th><th>Agents</th><th>Last sync</th><th></th></tr></thead><tbody>${acctRows}</tbody></table>` +
+    (agentRows ? `<div class="section-title" style="font-size:13px;margin:14px 0 6px">Discovered Bedrock agents</div>
+      <table><thead><tr><th>Agent</th><th>Status</th><th>Agent ID</th><th>Account</th><th>Updated</th></tr></thead><tbody>${agentRows}</tbody></table>` : '') +
+    errHtml;
 }
 
 async function renderAdminUsers() {

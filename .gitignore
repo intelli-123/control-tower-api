@@ -16,3 +16,6 @@ __pycache__/
 ct-launcher.config.bat
 
 improvements.txt
+
+# encryption key for stored cloud creds
+.ct-secret

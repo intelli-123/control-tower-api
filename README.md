@@ -69,6 +69,20 @@ working with no API key out of the box.
 | `GET` | `/api/cost` | Cost attribution per agent + department |
 | `GET` | `/api/health` | Health check |
 | `POST` | `/v1/traces` | **OTLP receiver** — any OpenTelemetry agent exports GenAI traces here (tokens, cost, latency, tool calls); maps `gen_ai.*`/`llm.*` spans onto the agent model. No SDK required. |
+| `POST/GET/DELETE` | `/api/admin/bedrock/accounts` | Connect / list / disconnect AWS accounts (creds stored encrypted) |
+| `GET` | `/api/admin/bedrock/agents` | Live inventory of Bedrock agents across connected accounts |
+
+---
+
+## Cloud agents — AWS Bedrock
+
+In **Admin → Cloud agents (AWS Bedrock)**, an admin clicks **Connect AWS account**,
+enters credentials (an IAM principal with `bedrock:ListAgents` is enough), and the tower
+calls the Bedrock Agent API (`ListAgentsCommand`) to discover that account's agents —
+showing how many accounts are connected, how many agents exist, and how many are
+`PREPARED`. Credentials are encrypted at rest (AES-256-GCM; key in a gitignored
+`.ct-secret`, override with `CT_SECRET_FILE`). Behind a TLS-inspection proxy, the AWS
+calls may need `NODE_TLS_REJECT_UNAUTHORIZED=0` / `NODE_EXTRA_CA_CERTS`.
 
 ---
 

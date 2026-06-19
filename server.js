@@ -20,6 +20,17 @@ const morgan  = require('morgan');
 const { v4: uuidv4 } = require('uuid');
 const dbStore = require('./db');
 const { buildSummary } = require('./insights');
+const bedrock = require('./bedrock');
+const secrets = require('./secrets');
+
+// Test seam: CT_BEDROCK_MOCK=1 returns canned agents instead of calling AWS.
+if (process.env.CT_BEDROCK_MOCK) {
+  bedrock.setClientFactory(() => ({ send: async () => ({ agentSummaries: [
+    { agentId: 'mock-1', agentName: 'OrdersAgent',  agentStatus: 'PREPARED',     description: 'demo', latestAgentVersion: '1', updatedAt: new Date().toISOString() },
+    { agentId: 'mock-2', agentName: 'SupportAgent', agentStatus: 'NOT_PREPARED', updatedAt: new Date().toISOString() },
+  ] }) }));
+  console.log('[bedrock] MOCK mode enabled');
+}
 
 const app  = express();
 const PORT = process.env.PORT || 3090;
@@ -1126,6 +1137,59 @@ app.post('/api/admin/agents/:id/meta', (req, res) => {
   const { name, framework, model, department, owner, notes } = req.body || {};
   dbStore.setAgentMeta(req.params.id, { name, framework, model, department, owner, notes });
   res.json({ ok: true });
+});
+
+// ─── AWS Bedrock cloud accounts ──────────────────────────────────────────────
+// Admin connects an AWS account (creds stored encrypted); we list its Bedrock
+// agents via the Bedrock Agent API. (requireAdmin via the auth gate.)
+function credsFor(acct) {
+  return { region: acct.region, accessKeyId: acct.access_key_id,
+    secretAccessKey: secrets.decrypt(acct.secret_enc), sessionToken: secrets.decrypt(acct.token_enc) };
+}
+const maskKey = k => (k && k.length > 4) ? '••••' + k.slice(-4) : (k || '');
+
+// Connect (validate by listing agents, then store encrypted).
+app.post('/api/admin/bedrock/accounts', async (req, res) => {
+  const { label, region, accessKeyId, secretAccessKey, sessionToken } = req.body || {};
+  if (!accessKeyId || !secretAccessKey) return res.status(400).json({ error: 'accessKeyId and secretAccessKey are required' });
+  const reg = (region || 'us-east-1').trim();
+  try {
+    const agents = await bedrock.listAgents({ region: reg, accessKeyId, secretAccessKey, sessionToken });
+    const id = crypto.randomUUID();
+    dbStore.upsertBedrockAccount({
+      id, label: (label || `AWS ${reg}`).trim(), region: reg, access_key_id: accessKeyId,
+      secret_enc: secrets.encrypt(secretAccessKey), token_enc: secrets.encrypt(sessionToken),
+      created_at: now(), last_sync: now(), agent_count: agents.length,
+    });
+    res.status(201).json({ ok: true, id, agent_count: agents.length });
+  } catch (e) {
+    res.status(400).json({ error: `Could not connect: ${e.name || ''} ${e.message}`.trim() });
+  }
+});
+
+app.get('/api/admin/bedrock/accounts', (req, res) => {
+  const accounts = dbStore.listBedrockAccounts().map(a => ({
+    id: a.id, label: a.label, region: a.region, access_key_id: maskKey(a.access_key_id),
+    agent_count: a.agent_count, last_sync: a.last_sync, created_at: a.created_at,
+  }));
+  res.json({ accounts, total: accounts.length });
+});
+
+app.delete('/api/admin/bedrock/accounts/:id', (req, res) => { dbStore.deleteBedrockAccount(req.params.id); res.json({ ok: true }); });
+
+// Aggregate agents across all connected accounts (live ListAgents per account).
+app.get('/api/admin/bedrock/agents', async (req, res) => {
+  const accounts = dbStore.allBedrockAccounts();
+  const agents = [], errors = [];
+  for (const acct of accounts) {
+    try {
+      const list = await bedrock.listAgents(credsFor(acct));
+      dbStore.setBedrockSync(acct.id, list.length, now());
+      for (const ag of list) agents.push({ ...ag, account_id: acct.id, account_label: acct.label, region: acct.region });
+    } catch (e) { errors.push({ account: acct.label, error: `${e.name || ''} ${e.message}`.trim() }); }
+  }
+  const running = agents.filter(a => a.status === 'PREPARED').length;
+  res.json({ accounts: accounts.length, total: agents.length, running, agents, errors });
 });
 
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────

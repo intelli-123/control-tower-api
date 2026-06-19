@@ -32,12 +32,18 @@ if (process.env.CT_BEDROCK_MOCK) {
   ] }) }));
   console.log('[bedrock] MOCK mode enabled');
 }
-// Test seam: CT_LANGSMITH_MOCK=1 returns canned projects instead of calling LangSmith.
+// Test seam: CT_LANGSMITH_MOCK=1 returns canned data. URL-aware: the list
+// endpoint returns metadata only; the per-session endpoint carries the stats.
 if (process.env.CT_LANGSMITH_MOCK) {
-  langsmith.setFetch(async () => ({ ok: true, status: 200, json: async () => ([
-    { id: 'p1', name: 'support-bot',  run_count: 1240, total_tokens: 380000, error_rate: 0.02, last_run_start_time: new Date().toISOString() },
-    { id: 'p2', name: 'rag-pipeline', run_count: 86,   total_tokens: 41000,  error_rate: 0.0,  last_run_start_time: new Date().toISOString() },
-  ]), text: async () => '' }));
+  const STATS = {
+    p1: { run_count: 1017, total_tokens: 380000, total_cost: '0.31', error_rate: 0.02, last_run_start_time: new Date().toISOString() },
+    p2: { run_count: 86,   total_tokens: 41000,  total_cost: '0.04', error_rate: 0.0,  last_run_start_time: new Date().toISOString() },
+  };
+  langsmith.setFetch(async (url) => {
+    const m = /\/sessions\/([^?]+)/.exec(url);
+    if (m) { const id = decodeURIComponent(m[1]); return { ok: true, status: 200, text: async () => '', json: async () => ({ id, name: id, ...(STATS[id] || {}) }) }; }
+    return { ok: true, status: 200, text: async () => '', json: async () => ([{ id: 'p1', name: 'fleet' }, { id: 'p2', name: 'rag-pipeline' }]) };
+  });
   console.log('[langsmith] MOCK mode enabled');
 }
 
@@ -1248,7 +1254,9 @@ app.get('/api/admin/langsmith/projects', async (req, res) => {
     } catch (e) { errors.push({ account: a.label, error: e.message }); }
   }
   const totalRuns = projects.reduce((s, p) => s + (p.runCount || 0), 0);
-  res.json({ accounts: accounts.length, total: projects.length, total_runs: totalRuns, projects, errors });
+  const totalTokens = projects.reduce((s, p) => s + (p.totalTokens || 0), 0);
+  const totalCost = +projects.reduce((s, p) => s + (p.totalCost || 0), 0).toFixed(4);
+  res.json({ accounts: accounts.length, total: projects.length, total_runs: totalRuns, total_tokens: totalTokens, total_cost: totalCost, projects, errors });
 });
 
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────

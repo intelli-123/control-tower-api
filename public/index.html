@@ -1384,7 +1384,9 @@ async function renderLangsmith() {
   const summary=`<div style="font-size:12px;color:var(--muted);margin-bottom:10px">
     <b style="color:var(--text)">${accounts.length}</b> workspace${accounts.length>1?'s':''} ·
     <b style="color:var(--text)">${data.total||0}</b> projects ·
-    <b style="color:var(--text)">${fmt(data.total_runs||0)}</b> runs</div>`;
+    <b style="color:var(--text)">${fmt(data.total_runs||0)}</b> runs ·
+    <b style="color:var(--text)">${fmt(data.total_tokens||0)}</b> tokens ·
+    <b style="color:var(--green)">${fmtCost(data.total_cost||0)}</b> spend</div>`;
   const acctRows=accounts.map(a=>`<tr>
       <td>${a.label}</td>
       <td style="font-size:11px;color:var(--dim)">${(a.base_url||'').replace('https://','')}</td>
@@ -1397,6 +1399,7 @@ async function renderLangsmith() {
       <td>${p.name||p.id}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${p.runCount!=null?fmt(p.runCount):'–'}</td>
       <td style="font-family:var(--font-mono);font-size:12px">${p.totalTokens!=null?fmt(p.totalTokens):'–'}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${p.totalCost!=null?fmtCost(p.totalCost):'–'}</td>
       <td style="font-size:12px">${p.account_label}</td>
       <td style="font-size:11px;color:var(--dim)">${p.lastRun?ago(p.lastRun):'–'}</td>
     </tr>`).join('');
@@ -1404,7 +1407,7 @@ async function renderLangsmith() {
   wrap.innerHTML = summary +
     `<table><thead><tr><th>Workspace</th><th>Host</th><th>API key</th><th>Projects</th><th>Last sync</th><th></th></tr></thead><tbody>${acctRows}</tbody></table>` +
     (projRows ? `<div class="section-title" style="font-size:13px;margin:14px 0 6px">Tracing projects</div>
-      <table><thead><tr><th>Project</th><th>Runs</th><th>Tokens</th><th>Workspace</th><th>Last run</th></tr></thead><tbody>${projRows}</tbody></table>` : '') +
+      <table><thead><tr><th>Project</th><th>Runs</th><th>Tokens</th><th>Cost</th><th>Workspace</th><th>Last run</th></tr></thead><tbody>${projRows}</tbody></table>` : '') +
     errHtml;
 }
 

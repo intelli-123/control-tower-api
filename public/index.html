@@ -1015,6 +1015,11 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
           <button class="btn btn-primary" style="font-size:12px" onclick="openBedrockModal()">+ Connect AWS account</button></div>
         <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Connect an AWS account to discover its Bedrock agents. Credentials are stored encrypted; only the agent inventory is read (ListAgents).</div>
         <div class="table-card" id="admin-bedrock" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
+
+        <div class="section-head" style="margin-top:20px"><div class="section-title">Observability — LangSmith</div>
+          <button class="btn btn-primary" style="font-size:12px" onclick="openLangsmithModal()">+ Connect LangSmith</button></div>
+        <div style="font-size:11px;color:var(--muted);margin:-6px 0 8px">Connect a LangSmith workspace (API key) to discover its tracing projects and run/token stats. The key is stored encrypted; only project data is read.</div>
+        <div class="table-card" id="admin-langsmith" style="padding:16px 18px"><div class="loading"><div class="spin"></div></div></div>
       </div>
 
     </div><!-- /content -->
@@ -1098,6 +1103,29 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         <div style="font-size:11px;color:var(--muted)">Read-only access is enough — the IAM principal needs <code>bedrock:ListAgents</code>. Stored encrypted.</div>
         <div id="bd-msg" style="font-size:12px;color:var(--red);min-height:16px"></div>
         <button class="btn btn-primary" id="bd-connect-btn" onclick="bedrockConnect()" style="align-self:flex-start">Connect &amp; discover</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Connect LangSmith modal -->
+<div class="modal-overlay" id="langsmith-modal" onclick="if(event.target===this)closeLangsmithModal()">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head">
+      <div class="modal-title">Connect LangSmith</div>
+      <button class="modal-close" onclick="closeLangsmithModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <input class="login-input" id="ls-label" placeholder="Label (e.g. Acme workspace)">
+        <select class="login-input" id="ls-region">
+          <option value="us">US (api.smith.langchain.com)</option>
+          <option value="eu">EU (eu.api.smith.langchain.com)</option>
+        </select>
+        <input class="login-input" id="ls-key" type="password" placeholder="LangSmith API key (lsv2_...)" autocomplete="off">
+        <div style="font-size:11px;color:var(--muted)">Create a key in LangSmith → Settings → API Keys. Stored encrypted.</div>
+        <div id="ls-msg" style="font-size:12px;color:var(--red);min-height:16px"></div>
+        <button class="btn btn-primary" id="ls-connect-btn" onclick="langsmithConnect()" style="align-self:flex-start">Connect &amp; discover</button>
       </div>
     </div>
   </div>
@@ -1259,6 +1287,7 @@ async function loadAdmin() {
   await renderAdminUsers();
   renderAdminAgents();   // agents: set department + owner (incl. MCP)
   renderBedrock();       // cloud agents: AWS Bedrock accounts + discovered agents
+  renderLangsmith();     // observability: LangSmith workspaces + projects
 }
 
 // ── AWS Bedrock cloud accounts ──────────────────────────────────────────────
@@ -1317,6 +1346,65 @@ async function renderBedrock() {
     `<table><thead><tr><th>Account</th><th>Region</th><th>Access key</th><th>Agents</th><th>Last sync</th><th></th></tr></thead><tbody>${acctRows}</tbody></table>` +
     (agentRows ? `<div class="section-title" style="font-size:13px;margin:14px 0 6px">Discovered Bedrock agents</div>
       <table><thead><tr><th>Agent</th><th>Status</th><th>Agent ID</th><th>Account</th><th>Updated</th></tr></thead><tbody>${agentRows}</tbody></table>` : '') +
+    errHtml;
+}
+
+// ── LangSmith observability ─────────────────────────────────────────────────
+function openLangsmithModal() {
+  ['ls-label','ls-key'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const r=document.getElementById('ls-region'); if(r) r.value='us';
+  const m=document.getElementById('ls-msg'); if(m) m.textContent='';
+  document.getElementById('langsmith-modal').classList.add('open');
+  document.body.classList.add('modal-open');
+}
+function closeLangsmithModal() {
+  document.getElementById('langsmith-modal').classList.remove('open');
+  document.body.classList.remove('modal-open');
+}
+async function langsmithConnect() {
+  const msg=document.getElementById('ls-msg'), btn=document.getElementById('ls-connect-btn');
+  const body={ label:val('ls-label'), region:val('ls-region'), apiKey:val('ls-key') };
+  if(!body.apiKey){ msg.textContent='API key is required.'; return; }
+  msg.style.color='var(--muted)'; msg.textContent='Connecting & discovering projects…'; btn.disabled=true;
+  const r=await apiFetch('/api/admin/langsmith/accounts','POST',body);
+  btn.disabled=false;
+  if(r && r.ok){ closeLangsmithModal(); renderLangsmith(); }
+  else { msg.style.color='var(--red)'; msg.textContent=(r && r.error) ? r.error : 'Failed to connect.'; }
+}
+async function langsmithDelete(id, label){
+  if(!confirm('Disconnect LangSmith workspace "'+label+'"? Stored key will be deleted.')) return;
+  await apiFetch('/api/admin/langsmith/accounts/'+encodeURIComponent(id),'DELETE');
+  renderLangsmith();
+}
+async function renderLangsmith() {
+  const wrap=document.getElementById('admin-langsmith'); if(!wrap) return;
+  const [acctData, projData] = await Promise.all([apiFetch('/api/admin/langsmith/accounts'), apiFetch('/api/admin/langsmith/projects')]);
+  const accounts=acctData?.accounts||[], data=projData||{projects:[],errors:[]};
+  if(!accounts.length){ wrap.innerHTML='<div class="empty-state"><p>No LangSmith workspaces connected yet. Click “Connect LangSmith” to discover tracing projects.</p></div>'; return; }
+  const summary=`<div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+    <b style="color:var(--text)">${accounts.length}</b> workspace${accounts.length>1?'s':''} ·
+    <b style="color:var(--text)">${data.total||0}</b> projects ·
+    <b style="color:var(--text)">${fmt(data.total_runs||0)}</b> runs</div>`;
+  const acctRows=accounts.map(a=>`<tr>
+      <td>${a.label}</td>
+      <td style="font-size:11px;color:var(--dim)">${(a.base_url||'').replace('https://','')}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${a.api_key}</td>
+      <td style="font-size:12px">${a.project_count!=null?a.project_count:'–'}</td>
+      <td style="font-size:11px;color:var(--dim)">${a.last_sync?ago(a.last_sync):'never'}</td>
+      <td><button class="btn" style="font-size:11px;padding:4px 10px" onclick="langsmithDelete('${a.id}','${(a.label||'').replace(/['"\\]/g,'')}')">Disconnect</button></td>
+    </tr>`).join('');
+  const projRows=(data.projects||[]).map(p=>`<tr>
+      <td>${p.name||p.id}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${p.runCount!=null?fmt(p.runCount):'–'}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${p.totalTokens!=null?fmt(p.totalTokens):'–'}</td>
+      <td style="font-size:12px">${p.account_label}</td>
+      <td style="font-size:11px;color:var(--dim)">${p.lastRun?ago(p.lastRun):'–'}</td>
+    </tr>`).join('');
+  const errHtml=(data.errors||[]).length?`<div style="font-size:11px;color:var(--red);margin-top:8px">⚠ ${data.errors.map(e=>e.account+': '+e.error).join(' · ')}</div>`:'';
+  wrap.innerHTML = summary +
+    `<table><thead><tr><th>Workspace</th><th>Host</th><th>API key</th><th>Projects</th><th>Last sync</th><th></th></tr></thead><tbody>${acctRows}</tbody></table>` +
+    (projRows ? `<div class="section-title" style="font-size:13px;margin:14px 0 6px">Tracing projects</div>
+      <table><thead><tr><th>Project</th><th>Runs</th><th>Tokens</th><th>Workspace</th><th>Last run</th></tr></thead><tbody>${projRows}</tbody></table>` : '') +
     errHtml;
 }
 

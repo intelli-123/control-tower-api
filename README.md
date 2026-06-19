@@ -71,6 +71,8 @@ working with no API key out of the box.
 | `POST` | `/v1/traces` | **OTLP receiver** — any OpenTelemetry agent exports GenAI traces here (tokens, cost, latency, tool calls); maps `gen_ai.*`/`llm.*` spans onto the agent model. No SDK required. |
 | `POST/GET/DELETE` | `/api/admin/bedrock/accounts` | Connect / list / disconnect AWS accounts (creds stored encrypted) |
 | `GET` | `/api/admin/bedrock/agents` | Live inventory of Bedrock agents across connected accounts |
+| `POST/GET/DELETE` | `/api/admin/langsmith/accounts` | Connect / list / disconnect LangSmith workspaces (API key encrypted) |
+| `GET` | `/api/admin/langsmith/projects` | Live inventory of LangSmith tracing projects (runs/tokens) |
 
 ---
 

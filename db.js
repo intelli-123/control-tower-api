@@ -41,6 +41,9 @@ function openAndMigrate(dbPath) {
   db.run(`CREATE TABLE IF NOT EXISTS bedrock_accounts (
     id TEXT PRIMARY KEY, label TEXT, region TEXT, access_key_id TEXT,
     secret_enc TEXT, token_enc TEXT, created_at TEXT, last_sync TEXT, agent_count INTEGER)`);
+  db.run(`CREATE TABLE IF NOT EXISTS langsmith_accounts (
+    id TEXT PRIMARY KEY, label TEXT, base_url TEXT, key_enc TEXT,
+    created_at TEXT, last_sync TEXT, project_count INTEGER)`);
   return db;
 }
 
@@ -211,6 +214,23 @@ function upsertBedrockAccount(a) {
 function setBedrockSync(id, agentCount, ts) { if (!db) return; try { db.run('UPDATE bedrock_accounts SET agent_count=?, last_sync=? WHERE id=?', [agentCount, ts, id]); } catch { /* ignore */ } }
 function deleteBedrockAccount(id) { if (!db) return; try { db.run('DELETE FROM bedrock_accounts WHERE id=?', [id]); } catch { /* ignore */ } }
 
+// ── LangSmith (observability) accounts — api key stored encrypted ──────────────
+function listLangsmithAccounts() { if (!db) return []; try { return db.all('SELECT id,label,base_url,created_at,last_sync,project_count FROM langsmith_accounts ORDER BY created_at'); } catch { return []; } }
+function allLangsmithAccounts() { if (!db) return []; try { return db.all('SELECT * FROM langsmith_accounts'); } catch { return []; } }
+function upsertLangsmithAccount(a) {
+  if (!db) return;
+  try {
+    db.run(`INSERT INTO langsmith_accounts(id,label,base_url,key_enc,created_at,last_sync,project_count)
+      VALUES(?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET label=excluded.label, base_url=excluded.base_url,
+        key_enc=excluded.key_enc, last_sync=excluded.last_sync, project_count=excluded.project_count`,
+      [a.id, a.label, a.base_url, a.key_enc, a.created_at || new Date().toISOString(),
+       a.last_sync || null, a.project_count != null ? a.project_count : null]);
+  } catch (e) { console.warn('[db] upsertLangsmithAccount:', e.message); }
+}
+function setLangsmithSync(id, count, ts) { if (!db) return; try { db.run('UPDATE langsmith_accounts SET project_count=?, last_sync=? WHERE id=?', [count, ts, id]); } catch { /* ignore */ } }
+function deleteLangsmithAccount(id) { if (!db) return; try { db.run('DELETE FROM langsmith_accounts WHERE id=?', [id]); } catch { /* ignore */ } }
+
 /** Close the DB so node-sqlite3-wasm releases its `<db>.lock` directory. */
 function close() { if (db) { try { db.close(); } catch { /* ignore */ } db = null; } }
 
@@ -220,5 +240,6 @@ module.exports = {
   getAgentMeta, allAgentMeta, setAgentMeta,
   listBUs, upsertBU, deleteBU, getAgentBUs, allAgentBUs, setAgentBUs,
   listBedrockAccounts, getBedrockAccount, allBedrockAccounts, upsertBedrockAccount, setBedrockSync, deleteBedrockAccount,
+  listLangsmithAccounts, allLangsmithAccounts, upsertLangsmithAccount, setLangsmithSync, deleteLangsmithAccount,
   get enabled() { return !!db; },
 };

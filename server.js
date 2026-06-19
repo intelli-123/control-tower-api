@@ -21,6 +21,7 @@ const { v4: uuidv4 } = require('uuid');
 const dbStore = require('./db');
 const { buildSummary } = require('./insights');
 const bedrock = require('./bedrock');
+const langsmith = require('./langsmith');
 const secrets = require('./secrets');
 
 // Test seam: CT_BEDROCK_MOCK=1 returns canned agents instead of calling AWS.
@@ -30,6 +31,14 @@ if (process.env.CT_BEDROCK_MOCK) {
     { agentId: 'mock-2', agentName: 'SupportAgent', agentStatus: 'NOT_PREPARED', updatedAt: new Date().toISOString() },
   ] }) }));
   console.log('[bedrock] MOCK mode enabled');
+}
+// Test seam: CT_LANGSMITH_MOCK=1 returns canned projects instead of calling LangSmith.
+if (process.env.CT_LANGSMITH_MOCK) {
+  langsmith.setFetch(async () => ({ ok: true, status: 200, json: async () => ([
+    { id: 'p1', name: 'support-bot',  run_count: 1240, total_tokens: 380000, error_rate: 0.02, last_run_start_time: new Date().toISOString() },
+    { id: 'p2', name: 'rag-pipeline', run_count: 86,   total_tokens: 41000,  error_rate: 0.0,  last_run_start_time: new Date().toISOString() },
+  ]), text: async () => '' }));
+  console.log('[langsmith] MOCK mode enabled');
 }
 
 const app  = express();
@@ -1195,6 +1204,51 @@ app.get('/api/admin/bedrock/agents', async (req, res) => {
   }
   const running = agents.filter(a => a.status === 'PREPARED').length;
   res.json({ accounts: accounts.length, total: agents.length, running, agents, errors });
+});
+
+// ─── LangSmith observability accounts ────────────────────────────────────────
+const LANGSMITH_BASE = { us: 'https://api.smith.langchain.com', eu: 'https://eu.api.smith.langchain.com' };
+
+app.post('/api/admin/langsmith/accounts', async (req, res) => {
+  const { label, region, baseUrl, apiKey } = req.body || {};
+  const key = (apiKey || '').trim();
+  if (!key) return res.status(400).json({ error: 'apiKey is required' });
+  const base = ((baseUrl && baseUrl.trim()) || LANGSMITH_BASE[(region || 'us').toLowerCase()] || LANGSMITH_BASE.us).replace(/\/$/, '');
+  try {
+    const projects = await langsmith.listProjects({ baseUrl: base, apiKey: key });
+    const id = crypto.randomUUID();
+    dbStore.upsertLangsmithAccount({
+      id, label: (label || 'LangSmith').trim(), base_url: base, key_enc: secrets.encrypt(key),
+      created_at: now(), last_sync: now(), project_count: projects.length,
+    });
+    res.status(201).json({ ok: true, id, project_count: projects.length });
+  } catch (e) {
+    res.status(400).json({ error: `Could not connect: ${e.message}` });
+  }
+});
+
+app.get('/api/admin/langsmith/accounts', (req, res) => {
+  const accounts = dbStore.allLangsmithAccounts().map(a => ({
+    id: a.id, label: a.label, base_url: a.base_url, api_key: maskKey(secrets.decrypt(a.key_enc)),
+    project_count: a.project_count, last_sync: a.last_sync, created_at: a.created_at,
+  }));
+  res.json({ accounts, total: accounts.length });
+});
+
+app.delete('/api/admin/langsmith/accounts/:id', (req, res) => { dbStore.deleteLangsmithAccount(req.params.id); res.json({ ok: true }); });
+
+app.get('/api/admin/langsmith/projects', async (req, res) => {
+  const accounts = dbStore.allLangsmithAccounts();
+  const projects = [], errors = [];
+  for (const a of accounts) {
+    try {
+      const list = await langsmith.listProjects({ baseUrl: a.base_url, apiKey: secrets.decrypt(a.key_enc) });
+      dbStore.setLangsmithSync(a.id, list.length, now());
+      for (const p of list) projects.push({ ...p, account_id: a.id, account_label: a.label });
+    } catch (e) { errors.push({ account: a.label, error: e.message }); }
+  }
+  const totalRuns = projects.reduce((s, p) => s + (p.runCount || 0), 0);
+  res.json({ accounts: accounts.length, total: projects.length, total_runs: totalRuns, projects, errors });
 });
 
 // ─── Dashboard UI ─────────────────────────────────────────────────────────────

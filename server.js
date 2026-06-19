@@ -421,6 +421,25 @@ app.post('/api/heartbeat', (req, res) => {
     );
   }
 
+  // ── Self-contained execution (one heartbeat = one complete run) ─────────────
+  // Used by the MCP proxy / recordCall: robust to concurrent calls (no shared
+  // in-flight slot). Tokens/cost come from this heartbeat's metrics.
+  if (body.execution) {
+    const exec = {
+      id:           uuidv4(),
+      agent_id:     agentId,
+      task:         body.execution.task || body.event_detail || null,
+      started_at:   body.execution.started_at || now(),
+      completed_at: now(),
+      latency_ms:   body.execution.latency_ms | 0,
+      tokens:       metrics.tokens_total || 0,
+      cost:         +(metrics.cost_usd || 0).toFixed(6),
+    };
+    store.executions.unshift(exec);
+    dbStore.recordExecution(exec);
+    if (store.executions.length > 2000) store.executions.pop();
+  }
+
   // ── Per-request execution tracking ──────────────────────────────────────────
   // Open on task_start, accumulate tokens/cost across the request's heartbeats,
   // close on task_complete recording wall-clock latency.

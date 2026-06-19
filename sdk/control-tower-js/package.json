@@ -9,7 +9,8 @@
     "./otel": "./otel.js",
     "./tokenCounter": "./tokenCounter.js"
   },
-  "files": ["controlTower.js", "otel.js", "tokenCounter.js", "README.md"],
+  "bin": { "control-tower-mcp-proxy": "./mcp-proxy.js" },
+  "files": ["controlTower.js", "otel.js", "tokenCounter.js", "mcp-proxy.js", "README.md"],
   "engines": { "node": ">=18" },
   "keywords": ["agent", "observability", "control-tower", "llm", "monitoring", "opentelemetry"],
   "license": "MIT",

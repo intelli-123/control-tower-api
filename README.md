@@ -88,6 +88,29 @@ calls may need `NODE_TLS_REJECT_UNAUTHORIZED=0` / `NODE_EXTRA_CA_CERTS`.
 
 ---
 
+## Live MCP usage metering (proxy)
+
+Passive MCP monitoring sees tools + health + the one-time schema tokens, but **not**
+the host's actual tool calls (those go host→server directly). To meter real per-call
+tokens/latency, put **`control-tower-mcp-proxy`** in the call path — it spawns the real
+server, forwards the JSON-RPC stream verbatim, and reports each `tools/call` to the tower:
+
+```json
+"weather": {
+  "command": "npx",
+  "args": ["-y", "control-tower-mcp-proxy", "--", "npx", "-y", "@scope/weather-mcp@latest"],
+  "env": { "CONTROL_TOWER_URL": "http://localhost:3090",
+           "CONTROL_TOWER_AGENT_ID": "weather-mcp",
+           "CONTROL_TOWER_NAME": "Weather MCP",
+           "CONTROL_TOWER_DEPARTMENT": "Engineering" }
+}
+```
+
+Each tool call becomes a self-contained execution (tokens/latency/errors) — robust to
+concurrent calls. `stdout` is reserved for the protocol; logging goes to `stderr`.
+
+---
+
 ## Two ways an agent reports in
 
 1. **SDK** (`control-tower-sdk`) — heartbeat + tokens/cost/tools, plus control-plane

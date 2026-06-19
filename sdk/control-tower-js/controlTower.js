@@ -172,6 +172,23 @@ class ControlTower {
     })).catch(() => {});
   }
 
+  /**
+   * Record one completed tool/LLM call as a self-contained execution — robust to
+   * concurrent/overlapping calls (unlike taskStart/taskComplete, which share a
+   * single in-flight slot). Used by the MCP proxy.
+   */
+  recordCall(name, { latencyMs = 0, inputTokens = 0, outputTokens = 0, error = null } = {}) {
+    this._tokensInput  += inputTokens;
+    this._tokensOutput += outputTokens;
+    this._callsMade++;
+    if (error) this._errorCount++;
+    this._recentTools.push(name);
+    if (this._recentTools.length > 20) this._recentTools = this._recentTools.slice(-20);
+    const payload = this._buildPayload({ event: 'tool_call', eventDetail: name + (error ? ` → ERROR: ${error}` : '') });
+    payload.execution = { task: 'callTool:' + name, latency_ms: Math.round(latencyMs) };
+    this._post('/api/heartbeat', payload).catch(() => {});
+  }
+
   /** Call when your agent starts a new task. */
   taskStart(task) {
     this.setStatus('busy', task);

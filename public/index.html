@@ -1984,9 +1984,14 @@ async function loadAgentDetail() {
   const qs = 'sort=recent' + (from ? '&from=' + encodeURIComponent(from) : '');
   const data = await apiFetch(`/api/agents/${encodeURIComponent(_detailAgent)}/executions?${qs}`);
   _detailExecs = data?.executions || [];
+  // MCP servers are monitored (health + tools + one-time schema tokens) but their
+  // actual tool calls happen in the host, so they record no per-request executions.
+  // Fall back to the agent's cumulative totals so tokens/cost aren't a misleading 0.
+  const agg = (_agents || []).find(x => x.agent_id === _detailAgent) || {};
+  const noExec = !(data && data.count);
   document.getElementById('ad-count').textContent   = data?.count || 0;
-  document.getElementById('ad-tokens').textContent  = fmt(data?.tokens || 0);
-  document.getElementById('ad-cost').textContent    = '$' + (data?.cost || 0).toFixed(4);
+  document.getElementById('ad-tokens').textContent  = fmt(noExec ? (agg.totals?.tokens || 0) : (data.tokens || 0));
+  document.getElementById('ad-cost').textContent    = '$' + (noExec ? (agg.totals?.cost || 0) : (data.cost || 0)).toFixed(4);
   document.getElementById('ad-latency').textContent = fmtLatency(data?.avg_latency_ms || 0);
   renderDetailTable();
 }

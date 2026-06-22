@@ -69,6 +69,14 @@ function gatherServers(cfg) {
   const out = [];
   for (const s of all) {
     if (!s || !s.name || seenName.has(s.name)) continue;
+    // Skip entries already wrapped by our MCP proxy — the proxy self-reports
+    // (with live per-call usage), so passively monitoring it would duplicate the
+    // agent and needlessly spawn a second server copy.
+    const cmdline = [s.command, ...(s.args || [])].join(' ');
+    if (/control-tower-mcp-proxy|mcp-proxy\.js/i.test(cmdline)) {
+      console.log(`[mcp] skipping "${s.name}" — already metered by control-tower-mcp-proxy`);
+      continue;
+    }
     const tgt = canonicalTarget(s);
     if (seenTarget.has(tgt)) {
       console.log(`[mcp] skipping "${s.name}" — duplicate of an earlier server (same target: ${tgt})`);

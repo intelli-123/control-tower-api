@@ -1,0 +1,64 @@
+{
+  "family": "control-tower-api",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "control-tower-api",
+      "image": "<IMAGE>",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "name": "control-tower-api-3090-tcp",
+          "containerPort": 3090,
+          "hostPort": 3090,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "PORT",
+          "value": "3090"
+        },
+        {
+          "name": "CT_DB_PATH",
+          "value": "/app/data/control-tower.db"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "control-tower-data",
+          "containerPath": "/app/data",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/control-tower-api",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "256",
+  "memory": "512",
+  "volumes": [
+    {
+      "name": "control-tower-data"
+    }
+  ],
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  }
+}

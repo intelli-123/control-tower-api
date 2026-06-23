@@ -29,11 +29,11 @@ const HOSTS = [
   { id: 'windsurf',    label: 'Windsurf', key: 'mcpServers', paths: {
       all: [join(HOME, '.codeium', 'windsurf', 'mcp_config.json')] } },
 
-  { id: 'vscode',      label: 'VS Code', key: 'servers', paths: {       // .vscode/mcp.json uses "servers"
-      win32:  [join(APPDATA, 'Code', 'User', 'mcp.json')],
-      darwin: [join(MACSUP,  'Code', 'User', 'mcp.json')],
-      linux:  [join(XDG,     'Code', 'User', 'mcp.json')],
-      all:    [join(process.cwd(), '.vscode', 'mcp.json')] } },
+  // { id: 'vscode',      label: 'VS Code', key: 'servers', paths: {       // .vscode/mcp.json uses "servers"
+  //     win32:  [join(APPDATA, 'Code', 'User', 'mcp.json')],
+  //     darwin: [join(MACSUP,  'Code', 'User', 'mcp.json')],
+  //     linux:  [join(XDG,     'Code', 'User', 'mcp.json')],
+  //     all:    [join(process.cwd(), '.vscode', 'mcp.json')] } },
 
   { id: 'vscode-settings', label: 'VS Code (settings)', key: 'mcp.servers', paths: {
       win32:  [join(APPDATA, 'Code', 'User', 'settings.json')],

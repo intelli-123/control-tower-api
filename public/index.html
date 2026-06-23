@@ -132,10 +132,10 @@ body::before {
   font-size: 11px;
   color: var(--muted);
   font-family: var(--font-mono);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.2px;
 }
 
-.conn-pill {
+/* .conn-pill {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -147,16 +147,16 @@ body::before {
   border-radius: 6px;
   margin-top: 10px;
   border: 1px solid var(--border);
-}
-.conn-dot {
+} */
+/* .conn-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--muted);
   transition: background .3s;
   flex-shrink: 0;
-}
-.conn-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.conn-dot.dead { background: var(--red); }
+} */
+/* .conn-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.conn-dot.dead { background: var(--red); } */
 
 nav { padding: 12px 0; flex: 1; }
 
@@ -775,12 +775,12 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
     <div class="logo">
       <div class="logo-mark">
         <div class="logo-icon">⬡</div>
-        <span class="logo-name">Control Tower</span>
+        <span class="logo-name">Agent Control Tower</span>
       </div>
-      <div class="logo-sub">agent operations</div>
+      <!--<div class="logo-sub">Control Tower</div> -->
       <div class="conn-pill">
         <div class="conn-dot" id="conn-dot"></div>
-        <span id="conn-label">connecting…</span>
+        <span id="conn-label"></span>
       </div>
     </div>
 
@@ -788,7 +788,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="nav-section">Monitor</div>
       <div class="nav-item active" onclick="nav('dashboard',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-        Dashboard
+        Mission Control
       </div>
       <div class="nav-item" onclick="nav('executive',this)" data-nav="executive">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
@@ -796,11 +796,11 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       </div>
       <div class="nav-item" onclick="nav('charts',this)" data-nav="charts">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        Charts
+        FinOps Insights
       </div>
       <div class="nav-item" onclick="nav('lineage',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4M12 11l-5 6M12 11l5 6"/></svg>
-        Lineage graph
+        Agent Topology
       </div>
       <div class="nav-item" onclick="nav('alerts',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -816,7 +816,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="nav-section" style="margin-top:8px">Analytics</div>
       <div class="nav-item" onclick="nav('cost',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        Cost attribution
+        Token Economy
       </div>
       <div class="nav-item" onclick="nav('audit',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -826,7 +826,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
       <div class="nav-section" style="margin-top:8px">Admin</div>
       <div class="nav-item" onclick="nav('admin',this)">
         <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 2l7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V6z"/></svg>
-        Admin
+        Inventory
         <span class="nav-badge nb-amber" id="nb-admin" style="display:none">0</span>
       </div>
 
@@ -847,7 +847,6 @@ tbody tr:hover td { background: rgba(255,255,255,0.02); }
         </div>
       </div>
       <div class="topbar-right">
-        <span class="pill pill-blue" id="top-agents">– agents</span>
         <span class="pill" id="top-status">–</span>
         <span class="pill pill-blue" id="top-role" title="Current view">–</span>
         <button class="btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark theme">🌙 Dark</button>
@@ -1561,9 +1560,9 @@ async function checkHealth() {
   const lbl = document.getElementById('conn-label');
   if (h?.status === 'ok') {
     dot.className = 'conn-dot live';
-    lbl.textContent = 'localhost:3090';
+    //lbl.textContent = 'localhost:3090';
     document.getElementById('uptime-label').textContent = Math.floor(h.uptime_s/60)+'m uptime';
-    document.getElementById('top-agents').textContent = h.agents + ' agents';
+    //document.getElementById('top-agents').textContent = h.agents + ' agents';
   } else {
     dot.className = 'conn-dot dead';
     lbl.textContent = 'offline';
@@ -1645,14 +1644,16 @@ async function loadDashboard() {
     </tr>`;
   }).join('');
 
-  document.getElementById('agents-table-wrap').innerHTML = `
-    <table>
+document.getElementById('agents-table-wrap').innerHTML = `
+  <div style="overflow-x:auto;">
+    <table style="min-width:1100px;">
       <thead><tr>
         <th>Agent</th><th>Type</th><th>Dept</th><th>Owner</th><th>Model</th><th>Framework</th>
         <th>Tools</th><th>Status</th><th>Tokens</th><th>Cost</th><th>Heartbeat</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+  </div>`;
 }
 
 // ── Lineage ───────────────────────────────────────────────────────────────────

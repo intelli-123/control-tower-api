@@ -36,7 +36,7 @@ jobs:
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY || 'control-tower-api' }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
@@ -55,6 +55,6 @@ jobs:
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-task-def.outputs.task-definition }}
-          service: ${{ secrets.ECS_SERVICE }}
-          cluster: ${{ secrets.ECS_CLUSTER }}
+          service: ${{ secrets.ECS_SERVICE || 'control-tower-service' }}
+          cluster: ${{ secrets.ECS_CLUSTER || 'control-tower-cluster' }}
           wait-for-service-stability: true

@@ -48,7 +48,7 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ROLE_ARN="${{ secrets.ECS_EXECUTION_ROLE_ARN }}"
           if [ -z "$ROLE_ARN" ]; then
-            ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole"
+            ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/service-role/ecsTaskExecutionRole"
           fi
           echo "Using Execution Role ARN: $ROLE_ARN"
           sed -i "s|<EXECUTION_ROLE_ARN>|$ROLE_ARN|g" .github/workflows/task-definition.json

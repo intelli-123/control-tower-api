@@ -61,6 +61,7 @@ jobs:
           docker push $IMAGE_URI
 
       - name: Deploy to Google Cloud Run
+        id: deploy
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ secrets.GCP_SERVICE_NAME || 'control-tower-api' }}
@@ -70,3 +71,7 @@ jobs:
             --allow-unauthenticated
             --port=3090
             --set-env-vars=CT_DB_PATH=/app/control-tower.db,NODE_ENV=production
+
+      - name: Show Deployed URL
+        run: |
+          echo "Deployed Service URL: ${{ steps.deploy.outputs.url }}"

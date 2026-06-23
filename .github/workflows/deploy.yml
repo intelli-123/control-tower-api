@@ -43,6 +43,16 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Inject Execution Role ARN into Task Definition
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ROLE_ARN="${{ secrets.ECS_EXECUTION_ROLE_ARN }}"
+          if [ -z "$ROLE_ARN" ]; then
+            ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole"
+          fi
+          echo "Using Execution Role ARN: $ROLE_ARN"
+          sed -i "s|<EXECUTION_ROLE_ARN>|$ROLE_ARN|g" .github/workflows/task-definition.json
+
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1

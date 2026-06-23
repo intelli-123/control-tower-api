@@ -1,6 +1,7 @@
 {
   "family": "control-tower-api",
   "networkMode": "awsvpc",
+  "executionRoleArn": "<EXECUTION_ROLE_ARN>",
   "containerDefinitions": [
     {
       "name": "control-tower-api",

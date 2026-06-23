@@ -69,4 +69,4 @@ jobs:
           flags: |
             --allow-unauthenticated
             --port=3090
-            --set-env-vars=PORT=3090,CT_DB_PATH=/app/control-tower.db,NODE_ENV=production
+            --set-env-vars=CT_DB_PATH=/app/control-tower.db,NODE_ENV=production

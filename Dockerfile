@@ -34,7 +34,7 @@ USER node
 
 # Default Environment Variables
 ENV PORT=3090
-ENV CT_DB_PATH=/app/data/control-tower.db
+ENV CT_DB_PATH=/app/control-tower.db
 ENV NODE_ENV=production
 
 # Expose the API port

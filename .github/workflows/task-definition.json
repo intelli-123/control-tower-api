@@ -23,7 +23,7 @@
         },
         {
           "name": "CT_DB_PATH",
-          "value": "/app/data/control-tower.db"
+          "value": "/app/control-tower.db"
         },
         {
           "name": "NODE_ENV",

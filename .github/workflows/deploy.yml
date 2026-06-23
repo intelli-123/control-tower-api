@@ -77,14 +77,8 @@ jobs:
           fi
 
           # 2. Ensure CloudWatch Log Group exists
-          echo "Checking if Log Group '/ecs/control-tower-api' exists..."
-          LOG_GROUP=$(aws logs describe-log-groups --log-group-name "/ecs/control-tower-api" --query "logGroups[0].logGroupName" --output text 2>/dev/null || echo "None")
-          if [ "$LOG_GROUP" = "None" ]; then
-            echo "Creating Log Group '/ecs/control-tower-api'..."
-            aws logs create-log-group --log-group-name "/ecs/control-tower-api"
-          else
-            echo "Log Group exists."
-          fi
+          echo "Creating Log Group '/ecs/control-tower-api' if it doesn't exist..."
+          aws logs create-log-group --log-group-name "/ecs/control-tower-api" 2>/dev/null || echo "Log Group already exists or creation was skipped."
 
           # 3. Ensure ECS Service exists
           echo "Checking if ECS Service '$SERVICE_NAME' exists in cluster '$CLUSTER_NAME'..."
